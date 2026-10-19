@@ -16,7 +16,9 @@ class Section:
     paragraphs: list[str] = field(default_factory=list)
     source: str = ""                # EPUB file name or "p12" for a PDF page, for reports
     label: str = ""                 # original table-of-contents label or heading, before renaming
-    heading: str = ""               # first heading found in the section (EPUB)
+    heading: str = ""               # the printed heading at the top of the section, removed from paragraphs
+    lead: int = 0                   # paragraphs that came before the printed heading (stray labels live here)
+    is_nav: bool = False            # the EPUB's own table-of-contents page
 
     @property
     def words(self) -> int:
