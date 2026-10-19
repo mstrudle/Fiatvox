@@ -541,8 +541,26 @@ def locate_chapters(specs, kept):
     return starts, skip, log
 
 
+def bookmarks_for(toc, pages, toc_level=None):
+    """Bookmarks as a flat chapter list over the kept pages. Uses parts and chapters (two levels) when the book
+    has them; a bookmark whose page was cut (a near-empty part title page, say) moves to the next kept page."""
+    if not toc:
+        return []
+    if toc_level is None:
+        toc_level = 2 if sum(1 for t in toc if t[0] <= 2) <= 120 else 1
+    kept = sorted(pages)
+    out = []
+    for lvl, title, pg in toc:
+        if lvl > toc_level:
+            continue
+        nxt = next((p for p in kept if p >= pg - 1), None)
+        if nxt is not None:
+            out.append([lvl, title, nxt + 1])
+    return out
+
+
 def convert(ps: PageSet, pages_spec=None, chapters=None, title=None, author=None, keep_footnotes=False,
-            heading_ratio=1.35, toc_level=1) -> tuple[Book, dict]:
+            heading_ratio=1.35, toc_level=None) -> tuple[Book, dict]:
     """The book from the kept pages, split into sections. Returns (book, build info for the QC report)."""
     pages = parse_pages(pages_spec, ps.page_count)
     if not pages:
@@ -605,7 +623,7 @@ def convert(ps: PageSet, pages_spec=None, chapters=None, title=None, author=None
         a, b = norm_key(a), norm_key(b)
         return bool(a) and bool(b) and (a.startswith(b[:25]) or b.startswith(a[:25]) or b[:25] in a)
 
-    toc = [] if chapters else [t for t in ps.toc if t[0] <= toc_level and (t[2] - 1) in set(pages)]
+    toc = [] if chapters else bookmarks_for(ps.toc, pages, toc_level)
     source = "explicit list" if chapters else "bookmarks" if toc else "large headings"
     if chapters:
         if boundaries and boundaries[0][0] > 0:

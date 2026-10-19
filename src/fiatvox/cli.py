@@ -129,6 +129,86 @@ def _range(part: str):
     return [int(part)]
 
 
+def cmd_signin(a) -> int:
+    """Choose an AI route and sign in, in the terminal (the app's setup screen does the same)."""
+    import getpass
+    import webbrowser
+
+    from .ai import get_backend, pi_backend
+    from .ai.setup import CLAUDE_NOTE, choices, pick_model, save_direct_key
+    from .settings import Settings
+
+    st = Settings.load()
+    print("\nHow should Fiat Vox reach an AI model? It is used to decide chapters and fix scanning errors.\n")
+    print(CLAUDE_NOTE + "\n")
+    opts = choices()
+    for i, c in enumerate(opts, 1):
+        print(f"  {i:>2}. {c.label}")
+    try:
+        n = int(input("\nNumber: ").strip())
+        c = opts[n - 1]
+    except (ValueError, IndexError):
+        print("No change.")
+        return 1
+    if c.kind == "none":
+        st.ai_provider, st.ai_model, st.setup_done = "none", "", True
+        st.save()
+        print("AI turned off. Fiat Vox will use local heuristics.")
+        return 0
+    if c.kind == "direct":
+        key = getpass.getpass(f"Paste your {c.label.split(' key')[0]} key (input hidden): ").strip()
+        if not key:
+            print("No key entered; no change.")
+            return 1
+        save_direct_key(c.provider, key)
+        st.ai_provider, st.ai_model = c.provider, ""
+    else:
+        def on_event(ev):
+            kind = ev.get("event")
+            if kind == "auth_url":
+                print(f"\nOpening your browser to sign in:\n  {ev['url']}")
+                if ev.get("instructions"):
+                    print(ev["instructions"])
+                webbrowser.open(ev["url"])
+            elif kind == "device_code":
+                print(f"\nVisit {ev['verificationUri']} and enter the code: {ev['userCode']}")
+                webbrowser.open(ev["verificationUri"])
+            elif kind in ("info", "progress"):
+                print(ev.get("message", ""))
+            elif kind == "prompt_withdrawn":
+                print("(Signed in through the browser; no need to paste anything.)")
+            elif kind == "prompt":
+                if ev.get("type") == "select":
+                    for i, o in enumerate(ev["options"], 1):
+                        print(f"  {i}. {o['label']}" + (f": {o['description']}" if o.get("description") else ""))
+                    try:
+                        return ev["options"][int(input(ev["message"] + " ").strip()) - 1]["id"]
+                    except (ValueError, IndexError):
+                        return None
+                if ev.get("type") == "secret":
+                    return getpass.getpass(ev["message"] + " (input hidden): ")
+                return input(ev["message"] + " ")
+            return None
+
+        pi_backend.login(c.provider, "oauth" if c.kind == "pi-oauth" else "api_key", on_event)
+        model = pick_model(c.provider, pi_backend.models())
+        st.ai_provider, st.ai_model = "pi", model
+        print(f"\nSigned in. Model: {model or 'Pi default'}")
+    backend = get_backend(st.ai_provider, st.ai_model)
+    ok, why = backend.available()
+    if ok:
+        try:
+            reply = backend.complete('Reply with exactly this JSON: {"ok": true}', purpose="test", timeout=120)
+            print(f"Test call to {backend.label}: {reply.strip()[:60]}")
+        except Exception as e:
+            print(f"Signed in, but a test call failed: {e}")
+    else:
+        print(why)
+    st.setup_done = True
+    st.save()
+    return 0
+
+
 def cmd_voices(a) -> int:
     from .narrate.kokoro_engine import VOICES
     for v, (accent, gender, grade) in VOICES.items():
@@ -160,6 +240,9 @@ def main(argv=None) -> int:
     p.add_argument("--no-import", action="store_true", help="do not import into Apple Books")
     p.add_argument("--no-report", action="store_true", help="do not write the QC report")
     p.set_defaults(func=cmd_make)
+
+    p = sub.add_parser("signin", help="choose an AI provider and sign in")
+    p.set_defaults(func=cmd_signin)
 
     p = sub.add_parser("voices", help="list the voices")
     p.set_defaults(func=cmd_voices)
