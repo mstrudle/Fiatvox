@@ -1,0 +1,7 @@
+# American phoneme overrides, applied to every American voice (af_*, am_*).
+# Format: word<TAB>/phonemes/   (whole words, any capitalisation; list each form you need)
+# Phonemes use misaki's American symbol set. Check a new entry with the pronunciation helper in Fiat Vox.
+# The American dictionary already reads combatant and lieutenant correctly.
+#
+# KWAH-zee (Kokoro default is KWAY-zye)
+quasi	/kwˈɑzi/

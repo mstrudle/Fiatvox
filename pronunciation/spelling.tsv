@@ -1,0 +1,5 @@
+# Spelling substitutions, applied to every voice before narration.
+# Format: find<TAB>replace   (case-sensitive, whole words; lines starting with # are ignored)
+# Use these for words that only need a different spelling to be read right. Examples:
+# HIMARS	High-mars
+# Clausewitz	Clowzeh-vits

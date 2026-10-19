@@ -1,0 +1,14 @@
+# British phoneme overrides, applied to every British voice (bf_*, bm_*).
+# Format: word<TAB>/phonemes/   (whole words, any capitalisation; list each form you need)
+# Phonemes use misaki's British symbol set. Check a new entry with the pronunciation helper in Fiat Vox.
+#
+# kuhm-BAT-uhnt (Kokoro default is KOM-buh-tuhnt)
+combatant	/kəmbˈatənt/
+combatants	/kəmbˈatənts/
+noncombatant	/nˌɒnkəmbˈatənt/
+noncombatants	/nˌɒnkəmbˈatənts/
+# KWAH-zee (Kokoro default is KWAY-zye)
+quasi	/kwˈɑːzi/
+# American loo-TEN-uhnt for the rank (the British dictionary says lef-TEN-uhnt)
+lieutenant	/luːtˈɛnənt/
+lieutenants	/luːtˈɛnənts/
