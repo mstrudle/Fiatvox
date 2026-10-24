@@ -94,7 +94,9 @@ Corrections you may return in "patch" (omit any you do not need):
 - "add_replacements": [[find, replace], ...] exact, case-sensitive text copied from the snippets below. Use them for
   garbled words ("RectrAL" -> "Recital") and for leftover page furniture such as a running header or page number
   stuck into the text ("192 BATILCESTUPDIRS" -> ""). Include a neighbouring word in find when the garble alone might
-  also match good text elsewhere.
+  also match good text elsewhere. Scanned books often lose a large decorative initial capital, so a section can
+  open with "he most natural" for "The most natural" or "n the Eastern Front" for "On the Eastern Front": fix
+  those with a replacement that includes the next few words.
 - "remove_replacements": [find, ...] to undo an earlier replacement that caused harm.
 - "pages" (PDF only): the complete corrected page string, only to restore wrongly cut content or cut junk that
   slipped through.
