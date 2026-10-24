@@ -198,18 +198,21 @@ def cmd_signin(a) -> int:
         model = pick_model(c.provider, pi_backend.models())
         st.ai_provider, st.ai_model = "pi", model
         print(f"\nSigned in. Model: {model or 'Pi default'}")
+    st.setup_done = True
+    st.save()  # saved before the test, so interrupting the test never loses the choice
+    print(f"Saved: Fiat Vox will use {get_backend(st.ai_provider, st.ai_model).label}.")
     backend = get_backend(st.ai_provider, st.ai_model)
     ok, why = backend.available()
-    if ok:
-        try:
-            reply = backend.complete('Reply with exactly this JSON: {"ok": true}', purpose="test", timeout=120)
-            print(f"Test call to {backend.label}: {reply.strip()[:60]}")
-        except Exception as e:
-            print(f"Signed in, but a test call failed: {e}")
-    else:
+    if not ok:
         print(why)
-    st.setup_done = True
-    st.save()
+        return 1
+    print("Checking it works (this can take up to a minute)...")
+    try:
+        reply = backend.complete('Reply with exactly this JSON: {"ok": true}', purpose="test", timeout=120)
+        print(f"It works. Reply from {backend.label}: {reply.strip()[:60]}")
+    except Exception as e:
+        print(f"The choice is saved, but a test call failed: {e}")
+        return 1
     return 0
 
 

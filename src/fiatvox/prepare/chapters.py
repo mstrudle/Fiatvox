@@ -94,7 +94,7 @@ def number_value(token: str) -> int:
 def _is_echo(text: str, title: str, echoes: set[str]) -> bool:
     """A short paragraph that only repeats the title, part of it, or a bare label like '[ONE]' or 'Chapter 7'."""
     t = text.strip()
-    if not t or len(t) >= 100:
+    if not t or len(t) >= 160:  # long printed subtitles exist ("LOSERS AND LUDDITES: ... SPARKS OF WAR", 104)
         return False
     n = norm(t)
     if not n:

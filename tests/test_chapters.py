@@ -73,3 +73,12 @@ def test_flat_list_one_marker_per_section():
     secs = [Section(title=f"Chapter {n}: T", paragraphs=["x."]) for n in range(1, 29)]
     info = prepare_chapters(book(*secs))
     assert info["sections"] == 28 and info["titles"][27] == "Chapter Twenty-Eight: T"
+
+
+def test_long_repeated_subtitle_is_removed():
+    s = Section(title="Chapter Fourteen: Losers and Luddites: The Changing Battlefields Robots Will Fight On and "
+                      "the New Electronic Sparks of War",
+                paragraphs=["LOSERS AND LUDDITES: THE CHANGING BATTLEFIELDS ROBOTS WILL FIGHT ON AND THE NEW "
+                            "ELECTRONIC SPARKS OF WAR", "Real text."])
+    prepare_chapters(book(s))
+    assert s.paragraphs == ["Real text."]
