@@ -32,6 +32,11 @@ def _env() -> dict:
     # an API key in the environment would make Claude Code bill the API instead of the plan
     for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"):
         e.pop(k, None)
+    # when Fiat Vox itself runs inside a Claude Code session, the host session's variables would make this
+    # `claude` use the host's credentials relay instead of the user's own sign-in
+    for k in list(e):
+        if k == "CLAUDECODE" or k.startswith(("CLAUDE_CODE_", "CLAUDE_AGENT_SDK_")) or k in ("CLAUDE_PID", "CLAUDE_EFFORT"):
+            e.pop(k)
     return e
 
 
