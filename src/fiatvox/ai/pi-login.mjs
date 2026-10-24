@@ -91,8 +91,12 @@ try {
     const deviceId = settings.getOrCreateDeviceId();
     await settings.flush();
     await runtime.login(providerId, method || "oauth", interaction, { getDeviceId: () => deviceId });
-    await runtime.refresh({ providers: [providerId], allowNetwork: true, signal: AbortSignal.timeout(15000) })
-      .catch(() => undefined);
+    // the credential is saved: report success first, then refresh the model list with a hard time limit
+    send({ event: "progress", message: "Signed in. Fetching the list of models..." });
+    await Promise.race([
+      runtime.refresh({ providers: [providerId], allowNetwork: true, signal: AbortSignal.timeout(15000) }),
+      new Promise((resolve) => setTimeout(resolve, 20000)),
+    ]).catch(() => undefined);
     send({ event: "done", provider: providerId });
   } else if (cmd === "logout") {
     await runtime.logout(providerId);
@@ -110,4 +114,6 @@ try {
   process.exitCode = 1;
 } finally {
   rl.close();
+  // an OAuth callback server or a pending refresh must not keep this helper alive
+  process.stdout.write("", () => process.exit(process.exitCode ?? 0));
 }

@@ -187,6 +187,8 @@ def cmd_signin(a) -> int:
                         return None
                 if ev.get("type") == "secret":
                     return getpass.getpass(ev["message"] + " (input hidden): ")
+                if ev.get("type") == "manual_code":
+                    return _wait_for_code(ev["message"], ev["_withdrawn"])
                 return input(ev["message"] + " ")
             return None
 
@@ -207,6 +209,19 @@ def cmd_signin(a) -> int:
     st.setup_done = True
     st.save()
     return 0
+
+
+def _wait_for_code(message: str, withdrawn) -> str | None:
+    """Wait for a pasted code, but stop waiting as soon as the browser completes the sign-in."""
+    import select
+    print(message + " ", end="", flush=True)
+    while True:
+        if withdrawn():
+            print()
+            return None
+        ready, _, _ = select.select([sys.stdin], [], [], 0.5)
+        if ready:
+            return sys.stdin.readline().strip()
 
 
 def cmd_voices(a) -> int:

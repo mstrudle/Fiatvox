@@ -165,27 +165,57 @@ def models() -> list[dict]:
 
 
 def login(provider: str, method: str, on_event: Callable[[dict], str | None]) -> None:
-    """Run a sign-in. `on_event` receives each event; for a "prompt" event it returns the answer (None cancels)."""
+    """Run a sign-in. `on_event` receives each event; for a "prompt" event it returns the answer (None cancels).
+
+    Events are read on a background thread, so a prompt that is still waiting for typing can be withdrawn when
+    the browser finishes the sign-in first (on_event then receives {"event": "prompt_withdrawn"})."""
+    import queue
+    import threading
+
     p = _bridge("login", provider, method)
     assert p.stdout and p.stdin
-    for line in p.stdout:
+    events: queue.Queue = queue.Queue()
+    withdrawn: set = set()
+
+    def reader():
+        for line in p.stdout:
+            try:
+                ev = json.loads(line)
+            except ValueError:
+                continue
+            if ev.get("event") == "prompt_withdrawn":
+                withdrawn.add(ev.get("id"))  # seen at once, even while a prompt is waiting for typing
+            events.put(ev)
+        events.put({"event": "_eof"})
+
+    threading.Thread(target=reader, daemon=True).start()
+    try:
+        while True:
+            ev = events.get(timeout=900)
+            kind = ev.get("event")
+            if kind == "_eof":
+                raise AIError("sign-in ended without finishing; try again")
+            if kind == "prompt":
+                answer = on_event(ev | {"_withdrawn": lambda i=ev["id"]: i in withdrawn})
+                if ev["id"] in withdrawn:
+                    continue
+                reply = {"id": ev["id"], "cancel": True} if answer is None else {"id": ev["id"], "value": answer}
+                p.stdin.write(json.dumps(reply) + "\n")
+                p.stdin.flush()
+                continue
+            on_event(ev)
+            if kind == "error":
+                raise AIError(ev.get("message", "sign-in failed"))
+            if kind == "done":
+                return
+    except queue.Empty as e:
+        raise AIError("sign-in timed out") from e
+    finally:
         try:
-            ev = json.loads(line)
-        except ValueError:
-            continue
-        kind = ev.get("event")
-        answer = on_event(ev)
-        if kind == "prompt":
-            reply = {"id": ev["id"], "cancel": True} if answer is None else {"id": ev["id"], "value": answer}
-            p.stdin.write(json.dumps(reply) + "\n")
-            p.stdin.flush()
-        elif kind == "error":
-            p.wait(timeout=10)
-            raise AIError(ev.get("message", "sign-in failed"))
-        elif kind == "done":
-            break
-    p.stdin.close()
-    p.wait(timeout=30)
+            p.stdin.close()
+            p.wait(timeout=25)
+        except Exception:
+            p.kill()
 
 
 def logout(provider: str) -> None:
