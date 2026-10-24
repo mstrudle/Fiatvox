@@ -1,4 +1,4 @@
-"""AI backends: Pi (default), direct API keys, or none (local heuristics only)."""
+"""AI backends: Claude Code (the user's own), Pi, direct API keys, or none (local heuristics only)."""
 from __future__ import annotations
 
 from .base import AIError, Backend, Usage, ask_json  # noqa: F401
@@ -20,6 +20,9 @@ class NoAI:
 
 
 def get_backend(provider: str, model: str = ""):
+    if provider == "claude-code":
+        from .claude_code import ClaudeCodeBackend
+        return ClaudeCodeBackend(model)
     if provider == "pi":
         from .pi_backend import PiBackend
         return PiBackend(model)

@@ -3,12 +3,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from . import keys, pi_backend
+from . import claude_code, keys, pi_backend
 from .direct import PROVIDERS as DIRECT
 
-CLAUDE_NOTE = ("Claude Pro and Max subscriptions work only through Pi. Anthropic bills that use as extra usage, "
-               "per token, not as part of your plan. For a fixed monthly cost, use a ChatGPT or GitHub Copilot "
-               "subscription through Pi; or use an API key, or no AI.")
+CLAUDE_NOTE = ("To use a Claude Pro or Max plan, choose Claude Code: Fiat Vox runs your own signed-in Claude Code, "
+               "and its requests count against your plan. Signing in to Claude through Pi is billed by Anthropic as "
+               "extra usage, per token, not as part of your plan. ChatGPT and GitHub Copilot subscriptions work "
+               "through Pi at no extra cost; API keys are billed per token.")
 
 # Models that suit Fiat Vox's short JSON tasks, per Pi provider; the first available one is preselected.
 PREFERRED = {
@@ -23,13 +24,15 @@ PREFERRED = {
 
 @dataclass
 class Choice:
-    kind: str        # "pi-oauth", "pi-key", "direct", "none"
+    kind: str        # "claude-code", "pi-oauth", "pi-key", "direct", "none"
     provider: str
     label: str
 
 
 def choices() -> list[Choice]:
     out = []
+    if claude_code.find_claude():
+        out.append(Choice("claude-code", "claude-code", "Claude Code (uses your Claude Pro or Max plan)"))
     if pi_backend.installed():
         try:
             provs = pi_backend.providers()
@@ -37,7 +40,8 @@ def choices() -> list[Choice]:
             provs = []
         for p in provs:
             if p["oauth"]:
-                out.append(Choice("pi-oauth", p["id"], f"{p['oauthName'] or p['name']} (sign in through Pi)"))
+                extra = "; Anthropic bills this as extra usage" if p["id"] == "anthropic" else ""
+                out.append(Choice("pi-oauth", p["id"], f"{p['oauthName'] or p['name']} (sign in through Pi{extra})"))
         for p in provs:
             if p["apiKey"] and p["id"] in ("anthropic", "openai", "google", "openrouter", "xai", "ollama"):
                 out.append(Choice("pi-key", p["id"], f"{p['name']} API key (through Pi)"))

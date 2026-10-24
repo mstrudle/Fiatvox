@@ -220,7 +220,17 @@ class Backend(Protocol):
 
 Every call goes through one helper that strips code fences, extracts the JSON object, retries once with "reply with the JSON object only", and raises a clear error otherwise (the old `ask_claude` behaviour). Purposes: `decisions`, `ocr_fix`, `review`, `phonemes`.
 
-### 3.2 Pi (default)
+### 3.1a Claude Code (added in Phase 2, approved)
+
+Testing showed that Anthropic bills Claude Pro and Max sign-ins through Pi (Fiat Vox's and Feynman's alike) as
+extra usage, per token. To run on a Claude plan, Fiat Vox can instead call the user's own installed and signed-in
+Claude Code (`claude -p --output-format json --tools "" --strict-mcp-config --no-session-persistence`), as the old
+pipeline did. Fiat Vox still implements no Claude login: the user installs Claude Code and signs in with
+Anthropic's own login. The installer does not bundle Claude Code; the setup screen offers this option when it finds
+`claude` installed, and lists it first. Any API key in the environment is removed for these calls so they count
+against the plan.
+
+### 3.2 Pi
 
 Verified against Pi 1.3.0's own docs (`docs/cli.md`, `docs/json.md`) and Feynman's source. I will re-check `pi --help` on the pinned version before coding.
 

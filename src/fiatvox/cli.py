@@ -155,7 +155,9 @@ def cmd_signin(a) -> int:
         st.save()
         print("AI turned off. Fiat Vox will use local heuristics.")
         return 0
-    if c.kind == "direct":
+    if c.kind == "claude-code":
+        st.ai_provider, st.ai_model = "claude-code", "sonnet"
+    elif c.kind == "direct":
         key = getpass.getpass(f"Paste your {c.label.split(' key')[0]} key (input hidden): ").strip()
         if not key:
             print("No key entered; no change.")

@@ -11,7 +11,7 @@ from . import paths
 @dataclass
 class Settings:
     # AI
-    ai_provider: str = "pi"            # "pi", "anthropic", "openai", "gemini", "openrouter" or "none"
+    ai_provider: str = "pi"            # "claude-code", "pi", "anthropic", "openai", "gemini", "openrouter", "none"
     ai_model: str = ""                 # Pi: "provider/model"; direct: the provider's model id ("" = default)
     review_rounds: int = 3
     setup_done: bool = False
