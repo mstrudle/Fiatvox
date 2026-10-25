@@ -355,9 +355,23 @@ def _wait_for_code(message: str, withdrawn) -> str | None:
 
 
 def cmd_voices(a) -> int:
+    """List the voices; play a sample; or make every sample now."""
+    from . import voices
     from .narrate.kokoro_engine import VOICES
-    for v, (accent, gender, grade) in VOICES.items():
-        print(f"{v:<12} {accent:<9} {gender:<7} grade {grade}")
+    if a.make_samples:
+        made = voices.make_samples(force=a.force,
+                                   progress=lambda i, n, v: print(f"Making sample {i} of {n}: {v}", flush=True))
+        print(f"{len(made)} sample(s) made; the others were already there." if made else "All samples are ready.")
+        return 0
+    if a.play:
+        v = a.play
+        print(f"{v}: {voices.describe(v)}")
+        voices.play(v, wait=True)
+        return 0
+    for v in VOICES:
+        mark = "" if voices.has_sample(v) else "  (no sample yet)"
+        print(f"{v:<12} {voices.describe(v)}{mark}")
+    print("\nPlay one with:  fiatvox voices --play george")
     return 0
 
 
@@ -393,7 +407,10 @@ def main(argv=None) -> int:
     p = sub.add_parser("signin", help="choose an AI provider and sign in")
     p.set_defaults(func=cmd_signin)
 
-    p = sub.add_parser("voices", help="list the voices")
+    p = sub.add_parser("voices", help="list the voices, play a sample, or make all samples")
+    p.add_argument("--play", metavar="VOICE", help="play this voice's sample, for example george or bf_emma")
+    p.add_argument("--make-samples", action="store_true", help="make every voice's sample now")
+    p.add_argument("--force", action="store_true", help="with --make-samples: make them again")
     p.set_defaults(func=cmd_voices)
 
     a = ap.parse_args(argv)
