@@ -92,3 +92,13 @@ async def test_review_stop_actions(env):
         app.screen.query_one("#continue").press()
         await pilot.pause()
         assert item.reviewed and not item.job().review_stop and item.status == q.WAITING
+
+
+async def test_refresh_while_a_dialog_is_open(env):
+    from fiatvox.tui.app import FiatVox
+    app = FiatVox()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("v")
+        await pilot.pause()
+        app.refresh_queue()   # the once-a-second refresh, with the voices dialog on top
+        await pilot.pause(1.2)

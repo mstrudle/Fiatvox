@@ -82,6 +82,11 @@ class FiatVox(App):
             yield Button("Review", id="review")
         yield Footer()
 
+    def main(self, selector: str, kind=None):
+        """A widget on the main screen, even while a dialog is open on top of it."""
+        base = self.screen_stack[0]
+        return base.query_one(selector, kind) if kind else base.query_one(selector)
+
     def on_mount(self) -> None:
         self.refresh_queue()
         self.set_interval(1.0, self.refresh_queue)
@@ -93,30 +98,30 @@ class FiatVox(App):
 
     # ------------------------------------------------------------------ queue display
     def refresh_queue(self) -> None:
-        t = self.query_one("#queue", DataTable)
+        t = self.main("#queue", DataTable)
         keep = t.cursor_row
         t.clear()
         for it in self.queue.items:
             pct = f"{100 * it.progress:3.0f}%" if it.status in q.ACTIVE + (q.DONE,) else ""
             t.add_row(it.name[:48], it.voice, "yes" if it.review_stop else "", q.STATUS_LABEL[it.status], pct,
                       fmt_eta(it.eta) if it.status in q.ACTIVE else "", key=it.id)
-        self.query_one("#empty").display = not self.queue.items
+        self.main("#empty").display = not self.queue.items
         t.display = bool(self.queue.items)
         if self.queue.items:
             t.move_cursor(row=min(keep, len(self.queue.items) - 1))
         cur = self.runner.current
-        self.query_one("#book_bar", ProgressBar).update(progress=100 * (cur.progress if cur else 0))
+        self.main("#book_bar", ProgressBar).update(progress=100 * (cur.progress if cur else 0))
         items = self.queue.items
         overall = sum((1.0 if i.status in (q.DONE, q.FAILED, q.CANCELLED) else i.progress) for i in items)
-        self.query_one("#all_bar", ProgressBar).update(progress=100 * overall / max(1, len(items)))
+        self.main("#all_bar", ProgressBar).update(progress=100 * overall / max(1, len(items)))
         self._detail()
-        self.query_one("#cancel").disabled = not self.runner.running
-        self.query_one("#start").disabled = self.runner.running or not self.queue.next_waiting()
+        self.main("#cancel").disabled = not self.runner.running
+        self.main("#start").disabled = self.runner.running or not self.queue.next_waiting()
         sel = self.selected()
-        self.query_one("#review").display = bool(sel and sel.status == q.REVIEW)
+        self.main("#review").display = bool(sel and sel.status == q.REVIEW)
 
     def selected(self) -> q.Item | None:
-        t = self.query_one("#queue", DataTable)
+        t = self.main("#queue", DataTable)
         if not self.queue.items or t.cursor_row is None or t.cursor_row >= len(self.queue.items):
             return None
         return self.queue.items[t.cursor_row]
@@ -124,7 +129,7 @@ class FiatVox(App):
     def _detail(self) -> None:
         it = self.selected()
         if not it:
-            self.query_one("#detail", Static).update("")
+            self.main("#detail", Static).update("")
             return
         lines = [f"[b]{it.name}[/b]   {Path(it.source).name}", it.message]
         if it.chapters:
@@ -139,7 +144,7 @@ class FiatVox(App):
             lines.append("[b]Press Return to listen and choose what to do.[/b]")
         if it.status == q.CANCELLED:
             lines.append("Press S to resume it from where it stopped.")
-        self.query_one("#detail", Static).update("\n".join(x for x in lines if x))
+        self.main("#detail", Static).update("\n".join(x for x in lines if x))
 
     @on(DataTable.RowHighlighted)
     def _highlight(self) -> None:
@@ -201,13 +206,13 @@ class FiatVox(App):
     def action_up(self) -> None:
         if it := self.selected():
             self.queue.move(it.id, -1)
-            self.query_one("#queue", DataTable).move_cursor(row=max(0, self.queue.items.index(it)))
+            self.main("#queue", DataTable).move_cursor(row=max(0, self.queue.items.index(it)))
             self.refresh_queue()
 
     def action_down(self) -> None:
         if it := self.selected():
             self.queue.move(it.id, 1)
-            self.query_one("#queue", DataTable).move_cursor(row=self.queue.items.index(it))
+            self.main("#queue", DataTable).move_cursor(row=self.queue.items.index(it))
             self.refresh_queue()
 
     def action_open(self) -> None:
