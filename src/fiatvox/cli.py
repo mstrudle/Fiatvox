@@ -15,10 +15,7 @@ from . import __version__, paths
 from . import platform as fv_platform
 
 
-def book_id(src: Path) -> str:
-    """Stable per source file: a readable slug plus a hash of the full path (same name in two folders differs)."""
-    slug = re.sub(r"[^a-z0-9]+", "-", src.stem.lower()).strip("-")[:40] or "book"
-    return f"{slug}-{hashlib.sha1(str(src.resolve()).encode()).hexdigest()[:8]}"
+from .jobs import book_id  # noqa: E402,F401  (kept here for callers and tests)
 
 
 def keep_awake() -> subprocess.Popen | None:
@@ -42,188 +39,73 @@ def _fmt_eta(sec) -> str:
 
 
 def cmd_make(a) -> int:
-    from .ai import get_backend
-    from .finish import books, report
-    from .narrate.assemble import safe_filename
-    from .narrate.kokoro_engine import resolve_voice
-    from .narrate.narrator import Cancelled, narrate
-    from .prepare.pipeline import PrepOptions, prepare, reset
-    from .settings import Settings
-
-    st = Settings.load()
-    src = Path(a.book).expanduser().resolve()
-    from .ingest.document import SUFFIXES as DOC_SUFFIXES
-    if not src.exists() or src.suffix.lower() not in (".epub", ".pdf") + DOC_SUFFIXES:
-        say(f"Not a book file Fiat Vox can read (EPUB, PDF, RTF, DOCX, ODT or text): {src}")
-        return 2
-    voice = resolve_voice(a.voice or st.default_voice)
-    out_dir = Path(a.out or st.output_dir).expanduser().resolve()
-    out_dir.mkdir(parents=True, exist_ok=True)
-    work = paths.book_dir(book_id(src))
-    if a.fresh:
-        reset(work)
-    provider = "none" if a.no_ai else (a.provider or st.ai_provider)
-    backend = get_backend(provider, a.model if a.model is not None else st.ai_model)
-    keep_awake()
-
-    last = [0.0]
-
-    def progress(stage, frac, msg):
-        now = time.monotonic()
-        if now - last[0] > 2 or frac in (0.0, 1.0):
-            say(f"{stage}: {msg}")
-            last[0] = now
-
-    t0 = time.monotonic()
-    from . import troubleshoot as ts
-    opts = PrepOptions(review_rounds=st.review_rounds if a.review_rounds is None else a.review_rounds,
-                       redecide=a.redecide, force_ocr=a.force_ocr, ocr_engine=a.ocr or st.ocr_engine,
-                       note=a.note or "")
-    kind = "pdf" if src.suffix.lower() == ".pdf" else "text"
-    incident = ts.Incident(book=work.name, source=str(src))
-    state = {"stage": "preparing", "reprepare": False, "book": None, "qc": None}
-
-    def context():
-        dec_path = work / "decisions.json"
-        dec = json.loads(dec_path.read_text(encoding="utf-8")) if dec_path.exists() else {}
-        return {"stage": state["stage"], "file": src.name, "kind": src.suffix.lower()[1:],
-                "size_mb": round(src.stat().st_size / 1e6, 1), "voice": voice,
-                "ai": backend.label, "options": vars(opts), "work_files": sorted(f.name for f in work.iterdir()),
-                "decisions": {k: (v if k in ("pages", "drop", "flags") else len(v) if isinstance(v, (list, dict))
-                                  else v) for k, v in dec.items() if not k.startswith("_")},
-                "warnings": (state["qc"] or {}).get("warnings", [])[:10]}
-
-    def apply(remedy: str, params: dict) -> str:
-        from .ingest import ocr as ocr_mod
-        dec_path = work / "decisions.json"
-        dec = json.loads(dec_path.read_text(encoding="utf-8")) if dec_path.exists() else None
-        state["reprepare"] = True
-        if remedy == "retry":
-            return "the step runs again unchanged"
-        if remedy == "force_ocr":
-            if kind != "pdf":
-                raise ValueError("only a PDF can be recognised again")
-            opts.force_ocr, opts.redecide = True, True
-            return "every page will be recognised again, then the chapters decided again"
-        if remedy == "ocr_engine":
-            eng = params.get("engine")
-            if kind != "pdf" or eng not in ("vision", "tesseract") or not ocr_mod.ocr_available(eng):
-                raise ValueError(f"OCR engine {eng!r} is not available for this book")
-            opts.ocr_engine, opts.force_ocr, opts.redecide = eng, True, True
-            return f"OCR with {eng}"
-        if remedy == "redecide":
-            opts.redecide = True
-            return "the AI decides chapters and cuts again"
-        if remedy == "heuristics":
-            opts.heuristics, opts.redecide = True, True
-            return "chapters and cuts decided with local rules"
-        if remedy == "no_review":
-            opts.review_rounds = 0
-            return "review rounds skipped"
-        if remedy == "no_ai_correction":
-            opts.ai_correction = False
-            return "AI correction of scanning errors skipped"
-        if dec is None:
-            raise ValueError("there are no saved decisions to change yet")
-        if remedy == "drop_sections":
-            if kind == "pdf":
-                raise ValueError("a PDF has pages, not sections")
-            extra = [int(x) for x in params.get("sections") or [] if str(x).isdigit()]
-            if not extra:
-                raise ValueError("no section numbers given")
-            dec["drop"] = sorted(set(dec.get("drop") or []) | set(extra))
-            result = f"sections {extra} cut"
-        elif remedy == "keep_pages":
-            from .ingest.pdf import parse_pages
-            if kind != "pdf":
-                raise ValueError("only a PDF has pages")
-            pages = str(params.get("pages") or "")
-            if not parse_pages(pages, 100000):
-                raise ValueError("the page list is empty or unreadable")
-            dec["pages"] = pages
-            result = f"keeping pages {pages}"
-        elif remedy == "replace_text":
-            find, rep = str(params.get("find") or ""), str(params.get("replace") or "")
-            if not find.strip() or len(find) > 120:
-                raise ValueError("the text to replace is empty or too long")
-            dec.setdefault("replacements", []).append([find, rep])
-            result = f'replacing "{find[:50]}" with "{rep[:50]}"'
-        else:
-            raise ValueError(f"unknown remedy {remedy}")
-        dec_path.write_text(json.dumps(dec, ensure_ascii=False, indent=1), encoding="utf-8")
-        opts.redecide = False
-        return result
-
-    def do_prepare():
-        state["stage"] = "preparing"
-        state["book"], state["qc"] = prepare(src, work, backend, opts, progress)
-        state["reprepare"] = False
-        return state["book"]
-
-    never = (KeyboardInterrupt, Cancelled)
-    try:
-        say(f"Preparing {src.name} (AI: {backend.label})")
-        ts.run_with_recovery("preparing the book", do_prepare, apply, backend, incident, context, say, never)
-    except ts.GaveUp as e:
-        say(f"Could not prepare the book: {e}")
-        say(f"Error report: {e.report}")
-        return 1
-    book, qc = state["book"], state["qc"]
-    for w in qc["warnings"]:
-        say(f"Warning: {w}")
-    say(f"Prepared: {len(book.sections)} chapters, {book.words:,} words in {time.monotonic() - t0:.0f}s")
-    if a.prepare_only:
-        _close_incident(incident, context, say)
-        say(f"Work folder: {work}")
-        return 0
-
+    from . import jobs
     sections = None
     if a.sections:
         sections = sorted({int(x) - 1 for part in a.sections.split(",") for x in _range(part)})
+    job = jobs.Job(source=a.book, voice=a.voice or "", out_dir=a.out or "", no_ai=a.no_ai, provider=a.provider,
+                   model=a.model, review_rounds=a.review_rounds, note=a.note or "", force_ocr=a.force_ocr,
+                   ocr=a.ocr, redecide=a.redecide, fresh=a.fresh, prepare_only=a.prepare_only, sections=sections,
+                   import_to_books=False if a.no_import else None, qc_report=False if a.no_report else None)
+    keep_awake()
+    last = {"t": 0.0}
 
-    def nprog(ev):
-        if ev.get("stage") == "assembling":
-            if ev.get("done") is None:
-                say("Assembling the audiobook")
-            return
-        now = time.monotonic()
-        if now - last[0] > 5:
-            pct = 100 * ev["done"] / max(1, ev["total"])
-            say(f"Narrating chapter {ev['chapter']} of {ev['chapters']} ({pct:.0f}%), {_fmt_eta(ev['eta'])} left")
-            last[0] = now
+    def emit(ev: dict) -> None:
+        t, now = ev["type"], time.monotonic()
+        if t == "log":
+            say(ev["msg"])
+        elif t == "stage":
+            if now - last["t"] > 2 or ev["frac"] in (0.0, 1.0):
+                say(f"{ev['stage']}: {ev['msg']}")
+                last["t"] = now
+        elif t == "prepared":
+            say(f"Prepared: {ev['chapters']} chapters, {ev['words']:,} words in {ev['seconds']}s")
+            if a.prepare_only:
+                say(f"Work folder: {ev['work']}")
+        elif t == "narrating":
+            if now - last["t"] > 5:
+                pct = 100 * ev["done"] / max(1, ev["total"])
+                say(f"Narrating chapter {ev['chapter']} of {ev['chapters']} ({pct:.0f}%), {_fmt_eta(ev['eta'])} left")
+                last["t"] = now
+        elif t == "assembling" and ev.get("done") is None:
+            say("Assembling the audiobook")
+        elif t == "done":
+            say(f"Done: {Path(ev['file']).name}, {ev['chapters']} chapters, {ev['duration'] / 3600:.2f} h of audio")
+            if ev["report"]:
+                say(f"QC report: {ev['report']}")
+            if ev["imported"]:
+                say("Imported into Apple Books")
+        elif t == "error":
+            say(ev["msg"])
+            if ev.get("report"):
+                say(f"Error report: {ev['report']}")
+        elif t == "cancelled":
+            say("Stopped. Everything narrated so far is kept; run the same command to resume.")
 
-    def do_narrate():
-        if state["reprepare"]:
-            do_prepare()
-        state["stage"] = "narrating"
-        b = state["book"]
-        name = safe_filename(f"{b.author} - {b.title}" if b.author else b.title or src.stem)
-        state["out"] = out_dir / f"{name}.m4b"
-        say(f"Narrating with {voice} to {state['out']}")
-        return narrate(b, voice, state["out"], st.silences(), st.bitrate_kbps, progress=nprog, sections=sections)
+    r = jobs.run(job, emit)
+    return {jobs.OK: 0, jobs.CANCELLED: 130}.get(r.code, 1)
 
-    try:
-        nar = ts.run_with_recovery("narrating the book", do_narrate, apply, backend, incident, context, say, never)
-    except (KeyboardInterrupt, Cancelled):
-        say("Stopped. Everything narrated so far is kept; run the same command to resume.")
-        return 130
-    except ts.GaveUp as e:
-        say(f"Could not narrate the book: {e}")
-        say(f"Error report: {e.report}")
-        return 1
-    _close_incident(incident, context, say)
-    book, qc, out = state["book"], state["qc"], state["out"]
-    say(f"Done: {out.name}, {len(nar['chapters'])} chapters, {nar['duration'] / 3600:.2f} h of audio")
-    if st.qc_report and not a.no_report:
-        rp = out.with_name(out.stem + " - QC report.md")
-        report.write(rp, qc, nar)
-        say(f"QC report: {rp}")
-    if st.import_to_books and not a.no_import:
-        ok, err = books.import_to_books(out)
-        say("Imported into Apple Books" if ok else f"Could not import into Books: {err}")
-    if st.notify:
-        books.notify("Fiat Vox", f"{book.title or src.stem} is ready.")
-    return 0
+
+def cmd_worker(a) -> int:
+    """Run one job for the app, writing events as JSON lines. SIGTERM or SIGINT cancels cleanly."""
+    import signal
+
+    from . import jobs
+    job = jobs.Job.from_json(json.loads(Path(a.job).read_text(encoding="utf-8")))
+    stop = {"flag": False}
+
+    def on_signal(signum, frame):
+        stop["flag"] = True
+    signal.signal(signal.SIGTERM, on_signal)
+    signal.signal(signal.SIGINT, on_signal)
+    keep_awake()
+
+    def emit(ev: dict) -> None:
+        sys.stdout.write(json.dumps(ev, ensure_ascii=False) + "\n")
+        sys.stdout.flush()
+
+    r = jobs.run(job, emit, cancelled=lambda: stop["flag"])
+    return r.code
 
 
 def _close_incident(incident, context, say) -> None:
@@ -399,6 +281,10 @@ def main(argv=None) -> int:
     p.add_argument("--no-import", action="store_true", help="do not import into Apple Books")
     p.add_argument("--no-report", action="store_true", help="do not write the QC report")
     p.set_defaults(func=cmd_make)
+
+    p = sub.add_parser("worker", help=argparse.SUPPRESS)
+    p.add_argument("job")
+    p.set_defaults(func=cmd_worker)
 
     p = sub.add_parser("errors", help="list error reports from failed runs")
     p.add_argument("--limit", type=int, default=20)

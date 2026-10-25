@@ -55,3 +55,17 @@ def test_overrides_never_nest_or_split():
     assert pronounce.apply_overrides(once, lex) == once
     with pytest.raises(ValueError):
         pronounce.override("two words", "x")
+
+
+@pytest.mark.slow
+def test_helper_checks_and_saves(tmp_path, monkeypatch):
+    monkeypatch.setenv("FIATVOX_DATA", str(tmp_path))
+    from fiatvox.narrate import helper
+    good = helper.check("quasi", "kwˈɑːzi", "b")
+    assert good.ok and "kwˈɑːzi" in good.phonemes_out
+    assert not helper.check("quasi", "kw ɑzi", "b").ok
+    assert not helper.check("quasi", "kw§zi", "b").ok
+    assert not helper.check("two words", "kwˈɑzi", "a").ok
+    helper.save("Clausewitz", "klˈWzəvɪts", "b", "klow-zuh-vits")
+    assert pronounce.load_phonemes("b")["clausewitz"] == "klˈWzəvɪts"
+    assert "combatant" in pronounce.load_phonemes("b")   # shipped entries still there
