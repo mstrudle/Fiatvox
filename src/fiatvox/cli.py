@@ -282,6 +282,18 @@ def main(argv=None) -> int:
     p.add_argument("--no-report", action="store_true", help="do not write the QC report")
     p.set_defaults(func=cmd_make)
 
+    p = sub.add_parser("doctor", help="check every part of the install and repair what it can")
+    p.add_argument("--quiet", action="store_true", help="print only problems")
+    p.add_argument("--no-repair", action="store_true")
+    p.set_defaults(func=lambda a: __import__("fiatvox.maintenance", fromlist=["x"]).doctor(a.quiet, not a.no_repair))
+
+    p = sub.add_parser("update", help="update Fiat Vox to the latest release")
+    p.set_defaults(func=lambda a: __import__("fiatvox.maintenance", fromlist=["x"]).update())
+
+    p = sub.add_parser("uninstall", help="remove Fiat Vox and everything it installed")
+    p.add_argument("--yes", action="store_true", help="do not ask")
+    p.set_defaults(func=lambda a: __import__("fiatvox.maintenance", fromlist=["x"]).uninstall(a.yes))
+
     p = sub.add_parser("worker", help=argparse.SUPPRESS)
     p.add_argument("job")
     p.set_defaults(func=cmd_worker)
