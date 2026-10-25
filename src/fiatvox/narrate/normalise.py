@@ -56,6 +56,7 @@ def roman(s: str) -> int:
 
 # Words after which a numeral is a plain number: "World War II" -> "World War Two", "Phase I" -> "Phase One".
 THING = ("War|Wars|Chapter|Part|Section|Book|Volume|Phase|Title|Article|Act|Scene|Appendix|Annex|Class|Type|Mark|"
+         "Lecture|Lectures|Lesson|Lessons|Essay|Essays|Letter|Letters|Canto|Cantos|Stanza|"
          "Chapters|Parts|Sections|Books|Volumes|Phases|Titles|Articles|Acts|Appendices|Annexes|Classes|Types|Marks|"
          "Stage|Level|Tier|Category|Figure|Table|Schedule|Protocol|Group|Block|Bowl|Grade|Model|Series|Plan|Star|"
          "Operation|Round|Step|Echelon|Region|Zone|Area|Task|Case|Division|Convention|Amendment|"

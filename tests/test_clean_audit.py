@@ -57,3 +57,14 @@ def test_top_heading_is_the_title():
     # an h2 only counts when it matches the table-of-contents label
     assert split_heading("<h2>Aside</h2><p>x</p>", "Chapter Two")[1] == ""
     assert split_heading("<h2>Chapter Two</h2><p>x</p>", "Chapter Two")[1] == "Chapter Two"
+
+
+def test_tables_and_equations_become_short_notes():
+    html = ("<p>Before.</p><table><tr><td>12.4</td><td>13.1</td></tr></table>"
+            "<p>Mid.</p><m:math><m:mi>x</m:mi></m:math><p>After.</p>")
+    assert paragraphs_of(clean_markup(html)) == ["Before.", "Table omitted.", "Mid.", "Equation omitted.", "After."]
+
+
+def test_layout_table_with_prose_is_kept():
+    prose = "This is a long paragraph of real prose that a publisher placed inside a table cell for layout reasons."
+    assert paragraphs_of(clean_markup(f"<table><tr><td><p>{prose}</p></td></tr></table>")) == [prose]

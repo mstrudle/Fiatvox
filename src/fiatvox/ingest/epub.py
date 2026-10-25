@@ -162,9 +162,31 @@ def paragraphs_of(fragment: str) -> list[str]:
     return [p for p in (_flat(x) for x in text.split("\n")) if p]
 
 
+TABLE = re.compile(r"<table\b.*?</table>", re.S | re.I)
+MATH = re.compile(r"<(?:\w+:)?math\b.*?</(?:\w+:)?math>", re.S | re.I)
+TABLE_NOTE = "<p>Table omitted.</p>"
+MATH_NOTE = "<p>Equation omitted.</p>"
+
+
+def is_data_table(table_html: str) -> bool:
+    """A table of figures or short entries, not a layout table that holds prose paragraphs."""
+    cells = [_flat(plain_text(c)) for c in re.findall(r"<t[dh]\b[^>]*>(.*?)</t[dh]>", table_html, re.S | re.I)]
+    cells = [c for c in cells if c]
+    if not cells:
+        return True
+    words = " ".join(cells).split()
+    numeric = sum(1 for w in words if re.fullmatch(r"[\d.,%$£€()+\-–]+", w)) / max(1, len(words))
+    avg = sum(len(c) for c in cells) / len(cells)
+    return numeric >= 0.25 or avg < 60
+
+
 def clean_markup(body: str) -> str:
+    """Note markers and page numbers removed; tables and equations replaced by a short spoken note, since read
+    aloud cell by cell they are noise ("12.4 percent 13.1 percent ...")."""
     for pat, repl in MARKUP_RULES:
         body = pat.sub(repl, body)
+    body = TABLE.sub(lambda m: TABLE_NOTE if is_data_table(m.group(0)) else m.group(0), body)
+    body = MATH.sub(MATH_NOTE, body)
     return body
 
 

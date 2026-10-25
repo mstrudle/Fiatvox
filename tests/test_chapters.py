@@ -82,3 +82,18 @@ def test_long_repeated_subtitle_is_removed():
                             "ELECTRONIC SPARKS OF WAR", "Real text."])
     prepare_chapters(book(s))
     assert s.paragraphs == ["Real text."]
+
+
+@pytest.mark.parametrize("before,after", [("Lecture I:", "Lecture One"), ("Lecture III", "Lecture Three"),
+                                          ("1 - The Theory of Maneuver Warfare", "Chapter One: The Theory of Maneuver Warfare")])
+def test_lecture_labels(before, after):
+    s = Section(title=before, paragraphs=["Text."])
+    prepare_chapters(Book(sections=[s]))
+    assert s.title == after
+
+
+def test_repeated_book_title_replaced_by_heading():
+    secs = [Section(title="Maneuver Warfare Handbook", heading=f"Heading {n}", paragraphs=["x."]) for n in range(3)]
+    secs.append(Section(title="Maneuver Warfare Handbook", paragraphs=["A Short First Line", "Body text here."]))
+    info = prepare_chapters(Book(title="Maneuver Warfare Handbook", sections=secs))
+    assert info["titles"] == ["Heading 0", "Heading 1", "Heading 2", "A Short First Line"]

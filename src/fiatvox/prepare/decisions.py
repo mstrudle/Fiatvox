@@ -16,8 +16,10 @@ afterword; appendices that are prose the reader would want to hear.
 CUT: covers; blank or near-blank pages; library stamps, bookplates, ownership marks, digitisation notices;
 publisher adverts, "also by", praise and blurbs; copyright and cataloguing pages; tables of contents; lists of
 illustrations, maps, plates or tables; handwritten, facsimile or foreign-language image pages (high junk ratio);
-maps, diagrams, plates and their captions; endnotes and footnote sections; bibliography and references; index;
-back cover.
+maps, diagrams, plates and their captions; endnotes and footnote sections; bibliography, references, reading
+lists and annotated bibliographies; lists of abbreviations and glossaries; pages or appendices that are mostly
+statistical tables, figures or equations (a chapter of prose that contains some tables is kept); index; back
+cover and its blurb.
 
 Flags (turn one on only when the evidence supports it):
 - fix_ligatures: words split after fi/fl ("fi ction", "offi cer")
@@ -34,7 +36,8 @@ listener sees in the audiobook player. Write them in normal sentence or title ca
 colon after the label: "Chapter Three: Analysis of the Battle of Cannae", "Part Two: Modern Battle", "Preface",
 "Translators' Note", "Appendix Two: Historical Documents". Every numbered chapter must be titled in this form,
 "Chapter <number as a word>: <chapter title>", numbered in one sequence through the whole book even when the
-book restarts its numbering in each part. Never include body text in a title.
+book restarts its numbering in each part. Never include body text in a title, and never use the book's own title
+as a chapter title (some files label every section with it).
 """
 
 PDF_PROMPT = """You are preparing a book PDF for text-to-speech narration. Below is a page-by-page dossier produced
@@ -66,7 +69,8 @@ Return ONLY this JSON object, no commentary:
 DOSSIER
 """
 
-EPUB_PROMPT = """You are preparing an EPUB for text-to-speech narration. Below is a section-by-section dossier: section
+EPUB_PROMPT = """You are preparing a book for text-to-speech narration (an EPUB, or an RTF, Word or text file that
+software has already split into sections at its headings). Below is a section-by-section dossier: section
 number, file name, table-of-contents label, first heading, word count, the opening and closing text, and a
 count of suspected OCR or conversion problems. Book-level audit counts and examples follow.
 

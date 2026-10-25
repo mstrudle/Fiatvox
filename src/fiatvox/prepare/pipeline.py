@@ -15,7 +15,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..ai import AIError, NoAI, ask_json
+from ..ingest import document as doc_in
 from ..ingest import epub as epub_in
+from ..ingest.document import SUFFIXES as DOC_SUFFIXES
 from ..ingest import ocr
 from ..ingest import pdf as pdf_in
 from ..model import Book
@@ -53,9 +55,13 @@ def _save_json(path: Path, data) -> None:
 
 def ingest(src: Path, work: Path, opts: PrepOptions, qc: dict, say: Progress):
     """Returns (kind, dossier, context) where context holds what build() needs."""
-    if src.suffix.lower() == ".epub":
-        say("Reading", 0.0, "Reading the EPUB")
-        raw = epub_in.read_epub(src, work)
+    if src.suffix.lower() in DOC_SUFFIXES:
+        say("Reading", 0.0, f"Converting the {src.suffix[1:].upper()} file")
+        raw = doc_in.read_document(src, work)
+    if src.suffix.lower() == ".epub" or src.suffix.lower() in DOC_SUFFIXES:
+        if src.suffix.lower() == ".epub":
+            say("Reading", 0.0, "Reading the EPUB")
+            raw = epub_in.read_epub(src, work)
         raw.save(work / "raw.json")
         a = audit_mod.audit(raw)
         d = dec.epub_dossier(raw, a)
@@ -135,10 +141,14 @@ def build(kind: str, ctx: dict, decisions: dict, backend, work: Path, say: Progr
     say("Building", 0.3, "Auditing the text")
     r["audit_before"] = audit_mod.audit(book)
     if not isinstance(backend, NoAI) and r["audit_before"]["issues"] > 0:
-        say("Correcting", 0.0, f"Sending {r['audit_before']['issues']} flagged passages to the AI")
+        heavy = r["audit_before"]["verdict"] == "HEAVY"
+        say("Correcting", 0.0, "Heavy damage: sending every paragraph to the AI" if heavy else
+            f"Sending {r['audit_before']['issues']} flagged passages to the AI")
         try:
-            book, fix = ocrfix.correct(book, backend, work,
+            book, fix = ocrfix.correct(book, backend, work, everything=heavy,
                                        progress=lambda i, n: say("Correcting", i / max(1, n), f"AI request {i} of {n}"))
+            if heavy:
+                r["events"].append("Heavy damage: every paragraph was sent for AI correction, not only flagged ones")
             r["ocr_fix"] = fix
             if fix["failed"]:
                 r["warnings"].append(f"{fix['failed']} AI correction request(s) failed ({fix['first_error'][:120]}); "

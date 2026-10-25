@@ -63,9 +63,16 @@ def _h(t: str) -> str:
     return hashlib.sha1(t.encode("utf-8")).hexdigest()
 
 
-def correct(book: Book, backend, work: Path, progress=None) -> tuple[Book, dict]:
-    """A corrected copy of the book and a summary. Writes ai-log.md and ai-cache.json in `work`."""
-    targets = {f"{si}.{pi}": (si, pi, text) for si, pi, text in flagged_paragraphs(book)}
+def correct(book: Book, backend, work: Path, progress=None, everything: bool = False) -> tuple[Book, dict]:
+    """A corrected copy of the book and a summary. Writes ai-log.md and ai-cache.json in `work`.
+
+    everything: send every paragraph, not only flagged ones. Used when the audit rates the damage as heavy (for
+    example an EPUB made from a bad scan), where damage the audit cannot see is likely too."""
+    if everything:
+        items = [(si, pi, p) for si, s in enumerate(book.sections) for pi, p in enumerate(s.paragraphs) if p.strip()]
+    else:
+        items = flagged_paragraphs(book)
+    targets = {f"{si}.{pi}": (si, pi, text) for si, pi, text in items}
     cache_path = work / "ai-cache.json"
     try:
         cache = json.loads(cache_path.read_text(encoding="utf-8"))
@@ -123,7 +130,7 @@ def correct(book: Book, backend, work: Path, progress=None) -> tuple[Book, dict]
             rejected += 1
             log.append(f"- **{pid}** REJECTED ({why}): {word_diff(text, new)[:400]}")
     (work / "ai-log.md").write_text("\n".join(log) + "\n", encoding="utf-8")
-    return out, {"selected": len(targets), "sent": len(todo), "requests": len(chunks), "accepted": accepted,
+    return out, {"everything": everything, "selected": len(targets), "sent": len(todo), "requests": len(chunks), "accepted": accepted,
                  "rejected": rejected, "failed": len(failures), "first_error": failures[0] if failures else ""}
 
 

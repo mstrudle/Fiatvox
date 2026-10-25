@@ -15,12 +15,13 @@ import re
 from ..model import Book
 from ..narrate.normalise import NUMBER_WORDS, cardinal, roman
 
-LABEL_WORDS = r"(?:Chapter|Part|Section|Book|Volume)"
+LABEL_WORDS = r"(?:Chapter|Part|Section|Book|Volume|Lecture|Lesson|Essay|Letter)"
 TITLE_PREFIX = re.compile(
     r"^(\s*)((?:" + LABEL_WORDS + r")\s+[A-Z0-9][A-Za-z0-9-]*|Introduction|Conclusion|Appendix(?:\s+[A-Z][A-Za-z-]*)?"
     r"|Epilogue|Prologue|Preface|Foreword|Afterword)\.\s+(?=\S)")
-BARE_LABEL = re.compile(r"^(?:(?:chapter|part|section|book|volume)\s+[\w-]+|\d+|[ivxlc]+)\.?$", re.I)
-LABEL_LINE = re.compile(r"^(chapter|part|section|book|volume)\s+([\w-]+)\.?$", re.I)
+BARE_LABEL = re.compile(r"^(?:(?:chapter|part|section|book|volume|lecture|lesson|essay|letter)\s+[\w-]+|\d+|[ivxlc]+)"
+                        r"[.:]?$", re.I)
+LABEL_LINE = re.compile(r"^(chapter|part|section|book|volume|lecture|lesson|essay|letter)\s+([\w-]+)[.:]?$", re.I)
 CHAPTER_NUM = re.compile(r"^Chapter\s+([A-Za-z]+(?:-[A-Za-z]+)?|\d+)\b(?=\s*(?::|$))")
 WORD_NUMBERS = {cardinal(n): n for n in range(1, 100)}
 
@@ -37,7 +38,7 @@ def uniform_title(t: str) -> str:
 
 SMALL_WORDS = {"a", "an", "and", "as", "at", "but", "by", "for", "from", "in", "into", "nor", "of", "on", "or",
                "the", "to", "with", "vs", "via"}
-NUMBER_LABEL = re.compile(r"^\[?\s*((?:part|book|volume|section)\s+)?([A-Za-z]+(?:-[A-Za-z]+)?|\d+)\s*\]?\s*[-–—:.]\s*(\S.*)$",
+NUMBER_LABEL = re.compile(r"^\[?\s*((?:part|book|volume|section|lecture|lesson|essay|letter)\s+)?([A-Za-z]+(?:-[A-Za-z]+)?|\d+)\s*\]?\s*[-–—:.]\s*(\S.*)$",
                           re.I)
 ACRONYM = re.compile(r"^(?:[A-Z]\.){2,}$|^(?:UK|USSR|NATO|EU|RMA|WWI|WWII|CIA|FBI|NASA|DARPA|IED|UAV|UAVS)$")
 
@@ -69,7 +70,10 @@ def smart_case(t: str) -> str:
 def tidy_title(t: str) -> str:
     """Make a raw table-of-contents label speakable: "[ONE] - INTRODUCTION: SCENES" -> "Chapter One: Introduction:
     Scenes"; "[PART TWO] - WHAT CHANGE" -> "Part Two: What Change". Titles already in good form are unchanged."""
-    t = re.sub(r"\s+", " ", t).strip()
+    t = re.sub(r"\s+", " ", t).strip().rstrip(":-–— ").strip()
+    m = re.match(r"^(part|book|volume|section|lecture|lesson|essay|letter|chapter)\s+([A-Za-z]+|\d+)$", t, re.I)
+    if m and number_value(m.group(2)):  # a bare "Lecture III" becomes "Lecture Three"
+        return f"{m.group(1).title()} {cardinal(number_value(m.group(2))).title()}"
     m = NUMBER_LABEL.match(t)
     if m and number_value(m.group(2)):
         kind = (m.group(1) or "Chapter").strip().title()
@@ -156,8 +160,28 @@ def renumber_chapters(book: Book) -> list[tuple[str, str]]:
     return changes
 
 
+def fix_repeated_titles(book: Book) -> list[tuple[str, str]]:
+    """Some EPUBs give most sections the book's own name as their title. A chapter list where every entry reads
+    "Maneuver Warfare Handbook" is useless, so such sections take their own heading, label or first short line."""
+    counts = {}
+    for s in book.sections:
+        counts[norm(s.title)] = counts.get(norm(s.title), 0) + 1
+    bad = {t for t, c in counts.items() if t and c >= 3 or (book.title and t == norm(book.title))}
+    changes = []
+    for s in book.sections:
+        if norm(s.title) not in bad:
+            continue
+        for cand in (s.heading, s.label, *(p for p in s.paragraphs[:2] if len(p) < 100)):
+            if cand and norm(cand) not in bad:
+                changes.append((s.title, cand))
+                s.title = cand
+                break
+    return changes
+
+
 def prepare_chapters(book: Book) -> dict:
     """Name every section and drop sections with nothing to say. Returns what was done, for the QC report."""
+    retitled = fix_repeated_titles(book)
     removed, empty = [], []
     for n, sec in enumerate(book.sections, 1):
         for t in name_section(sec, n):
@@ -171,4 +195,4 @@ def prepare_chapters(book: Book) -> dict:
     book.sections = kept
     renumbered = renumber_chapters(book)
     return {"sections": len(book.sections), "titles": [s.title for s in book.sections],
-            "removed_labels": removed, "renumbered": renumbered, "empty_dropped": empty}
+            "removed_labels": removed, "renumbered": renumbered, "empty_dropped": empty, "retitled": retitled}

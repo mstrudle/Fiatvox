@@ -116,3 +116,11 @@ def test_pi_jsonl_final_message():
              {"type": "agent_end"}]
     text, usage, err = parse_jsonl("\n".join(json.dumps(x) for x in lines) + "\n")
     assert text == '{"a": 1}' and usage == {"input": 120, "output": 8, "cost": 0.001} and not err
+
+
+def test_ocr_fix_everything_sends_unflagged_paragraphs(tmp_path):
+    book = Book(sections=[Section(title="One", paragraphs=["A clean sentence.", "Another clean one."])])
+    m = Mock(['{"0.0": "A clean sentence."}'])
+    _, info = ocrfix.correct(book, m, tmp_path, everything=True)
+    assert info["selected"] == 2 and info["sent"] == 2 and info["everything"]
+    assert "Another clean one." in m.prompts[0]

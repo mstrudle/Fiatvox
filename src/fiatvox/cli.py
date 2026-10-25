@@ -51,8 +51,9 @@ def cmd_make(a) -> int:
 
     st = Settings.load()
     src = Path(a.book).expanduser().resolve()
-    if not src.exists() or src.suffix.lower() not in (".epub", ".pdf"):
-        say(f"Not an EPUB or PDF: {src}")
+    from .ingest.document import SUFFIXES as DOC_SUFFIXES
+    if not src.exists() or src.suffix.lower() not in (".epub", ".pdf") + DOC_SUFFIXES:
+        say(f"Not a book file Fiat Vox can read (EPUB, PDF, RTF, DOCX, ODT or text): {src}")
         return 2
     voice = resolve_voice(a.voice or st.default_voice)
     out_dir = Path(a.out or st.output_dir).expanduser().resolve()

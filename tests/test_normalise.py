@@ -23,6 +23,8 @@ NUMERALS = [
     ("Vatican II reforms", "Vatican Two reforms"),
     ("The Road to War I discussed", "The Road to War I discussed"),
     ("Appendix II.", "Appendix Two."),
+    ("In Lecture III Boyd argues", "In Lecture Three Boyd argues"),
+    ("Lectures I and II", "Lectures One and II"),
     # regnal names
     ("Napoleon III was emperor.", "Napoleon the Third was emperor."),
     ("Henry VIII married often.", "Henry the Eighth married often."),
