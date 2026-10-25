@@ -35,22 +35,37 @@ def get(k: str) -> np.ndarray | None:
     try:
         data, sr = sf.read(str(p), dtype="float32")
     except Exception:
-        p.unlink(missing_ok=True)  # a half-written clip from a crash
+        p.unlink(missing_ok=True)  # unreadable: it will be recorded again
         return None
     return data if sr == SAMPLE_RATE else None
 
 
-def put(k: str, audio: np.ndarray) -> None:
+def frames(k: str) -> int | None:
+    """Length of a cached clip in samples, or None (and the clip removed) if it cannot be read."""
     import soundfile as sf
     p = path_for(k)
+    try:
+        return sf.info(str(p)).frames
+    except Exception:
+        p.unlink(missing_ok=True)
+        return None
+
+
+def put(k: str, audio: np.ndarray) -> None:
+    import soundfile as sf
+    import os
+    p = path_for(k)
     p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(".tmp.flac")
+    if audio is None or len(audio) == 0:
+        audio = np.zeros(int(0.1 * SAMPLE_RATE), dtype=np.float32)  # an empty FLAC cannot be read back
+    tmp = p.with_name(f"{p.stem}.{os.getpid()}.tmp.flac")
     sf.write(str(tmp), np.clip(audio, -1.0, 1.0), SAMPLE_RATE, subtype="PCM_16", format="FLAC")
     tmp.replace(p)
 
 
 def has(k: str) -> bool:
-    return path_for(k).exists()
+    p = path_for(k)
+    return p.exists() and p.stat().st_size > 0
 
 
 def size_bytes() -> int:

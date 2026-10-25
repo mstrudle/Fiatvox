@@ -16,6 +16,8 @@ from . import normalise as norm
 from . import pronounce
 
 OVERRIDE = re.compile(r"\[[^\[\]\s]+\]\(/[^/\s]+/\)")
+SPEAKABLE = re.compile(r"[A-Za-z0-9\u00c0-\u024f]")
+SCENE_BREAK = 1.2  # seconds of silence for a scene break
 
 
 @dataclass
@@ -91,8 +93,15 @@ def chapters(book: Book, speaker: Speaker, silences: Silences) -> list[SpokenCha
         paras = [p for p in sec.paragraphs if p.strip()]
         for i, p in enumerate(paras):
             last = i == len(paras) - 1
+            if not SPEAKABLE.search(p):
+                # a scene break ("* * *") or ornament: nothing to say, so a longer pause instead
+                if ch.units:
+                    ch.units[-1].pause_after = max(ch.units[-1].pause_after, SCENE_BREAK)
+                continue
             ch.units.append(Unit(speaker.speak(p), "para", 0.0,
                                  silences.chapter_end if last else silences.paragraph))
+        if ch.units and ch.units[-1].kind == "para":
+            ch.units[-1].pause_after = max(ch.units[-1].pause_after, silences.chapter_end)
         out.append(ch)
     return out
 

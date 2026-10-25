@@ -101,13 +101,15 @@ def render(p: Plan, progress: Callable[[dict], None] | None = None,
 
 def chapter_audio(p: Plan) -> list[ChapterAudio]:
     """Lazy chapter streams for assembly; lengths are computed from the cached clips."""
-    import soundfile as sf
     out = []
     for ch, ks in zip(p.chapters, p.keys):
         n = 0
         for u, k in zip(ch.units, ks):
-            n += int(round(u.pause_before * SAMPLE_RATE)) + sf.info(str(cache.path_for(k))).frames \
-                + int(round(u.pause_after * SAMPLE_RATE))
+            f = cache.frames(k)
+            if f is None:  # unreadable or missing: record it again
+                cache.put(k, engine().synth(u.text, p.voice))
+                f = cache.frames(k)
+            n += int(round(u.pause_before * SAMPLE_RATE)) + f + int(round(u.pause_after * SAMPLE_RATE))
 
         def pieces(ch=ch, ks=ks):
             for u, k in zip(ch.units, ks):

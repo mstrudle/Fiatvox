@@ -54,3 +54,17 @@ def test_regnal_names_from_the_book():
     book = Book(sections=[Section(title="One", paragraphs=["Archbishop Makarios III spoke.", "Then Makarios III left."])])
     sp = chunk.Speaker.for_voice("bm_george", book)
     assert sp.speak("Then Makarios III left.") == "Then Makarios the Third left."
+
+
+def test_scene_breaks_become_pauses():
+    book = Book(sections=[Section(title="One", paragraphs=["Before.", "* * *", "• • •", "After."])])
+    sil = chunk.Silences(paragraph=0.4, chapter_end=1.0)
+    u = chunk.chapters(book, speaker(), sil)[0].units
+    assert [x.text for x in u] == ["One.", "Before.", "After."]
+    assert u[1].pause_after == chunk.SCENE_BREAK and u[2].pause_after == 1.0
+
+
+def test_section_ending_with_a_scene_break_keeps_its_chapter_pause():
+    book = Book(sections=[Section(title="One", paragraphs=["Text.", "* * *"])])
+    u = chunk.chapters(book, speaker(), chunk.Silences(chapter_end=1.0))[0].units
+    assert u[-1].text == "Text." and u[-1].pause_after >= 1.0

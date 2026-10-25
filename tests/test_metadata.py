@@ -35,3 +35,16 @@ def test_book_id_differs_by_folder(tmp_path):
         p.write_text("x")
     assert book_id(a) != book_id(b)
     assert book_id(a).startswith("book-") and book_id(a) == book_id(Path(str(a)))
+
+
+def test_cache_never_keeps_an_unreadable_clip(tmp_path, monkeypatch):
+    import numpy as np
+    monkeypatch.setenv("FIATVOX_DATA", str(tmp_path))
+    from fiatvox.narrate import cache
+    k = cache.key("* * *", "bm_george")
+    cache.put(k, np.zeros(0, dtype=np.float32))          # an empty result is stored as a moment of silence
+    assert cache.frames(k) == 2400 and cache.has(k)
+    cache.path_for(k).write_bytes(b"")                   # a damaged clip
+    assert not cache.has(k)
+    cache.path_for(k).write_bytes(b"not audio")
+    assert cache.frames(k) is None and not cache.path_for(k).exists()
