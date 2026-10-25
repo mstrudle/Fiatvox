@@ -438,6 +438,20 @@ As in the brief: fresh install on an account without Node, Pi, Python 3.12 or Ho
 
 ---
 
+## 8a. Deferred: error reports to GitHub (decided, not scheduled)
+
+Every error report (see `troubleshoot.py`) should eventually reach the project's GitHub issues, so failures feed
+back into the code. Decided approach, to build later:
+
+- A small relay service holds the only GitHub credential and creates the issues. Fiat Vox never carries a token.
+- The relay accepts only a fixed, pre-formatted message and rejects anything else: a JSON schema with closed
+  fields (Fiat Vox version, macOS version, file type, size bucket, failed step, error type, a fingerprint, a
+  traceback limited to Fiat Vox's own source files, the AI's diagnosis and remedy, the outcome), each with a
+  length limit and allowed characters. No free text from the user, no book text, no paths outside `~`.
+- One issue per fingerprint (error type plus the failing line in Fiat Vox's code); repeats become comments.
+- Issues carry the `error-report` label. Sending is a choice the user makes in setup.
+- Needs the GitHub repository (Q7) and a host for the relay.
+
 ## 9. Open questions for you
 
 - **Q1. Runtime folder.** I propose `~/.fiatvox` for the runtime and `~/Library/Application Support/Fiat Vox/` for work and settings. Reason: Python and Node scripts use the interpreter's full path in their first line, and paths with spaces ("Application Support") break that in several tools. Alternative: everything under Application Support with a symlink `~/.fiatvox` pointing in. Your preference?
