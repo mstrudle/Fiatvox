@@ -105,8 +105,9 @@ if [ -n "${FIATVOX_SOURCE:-}" ]; then
 else
   VERSION="${FIATVOX_VERSION:-}"
   if [ -z "$VERSION" ]; then
-    VERSION="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest" | sed 's#.*/tag/v##')"
-    [ -n "$VERSION" ] && [ "$VERSION" != "https://github.com/$REPO/releases/latest" ] || die "could not find the latest release."
+    VERSION="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest" \
+               | sed -n 's#.*/tag/v\([0-9][0-9A-Za-z.]*\)$#\1#p')"
+    [ -n "$VERSION" ] || die "there is no Fiat Vox release to install yet."
   fi
   say "Release $VERSION"
   REL="https://github.com/$REPO/releases/download/v$VERSION"
