@@ -452,12 +452,14 @@ back into the code. Decided approach, to build later:
 - Issues carry the `error-report` label. Sending is a choice the user makes in setup.
 - Needs the GitHub repository (Q7) and a host for the relay.
 
-## 9. Open questions for you
+## 9. Decisions (formerly open questions)
 
-- **Q1. Runtime folder.** I propose `~/.fiatvox` for the runtime and `~/Library/Application Support/Fiat Vox/` for work and settings. Reason: Python and Node scripts use the interpreter's full path in their first line, and paths with spaces ("Application Support") break that in several tools. Alternative: everything under Application Support with a symlink `~/.fiatvox` pointing in. Your preference?
-- **Q2. OCR with Apple Vision**, with PyMuPDF's built-in Tesseract as the fallback (2.4). No Homebrew anywhere. OK?
-- **Q3. Book model instead of an intermediate EPUB** (1.2, item 1). OK?
-- **Q4. Voices.** Offer all 28 English voices (the Studio's 27 plus `af_nova`)?
-- **Q5. `--note`.** Confirm the behaviour in 4.4.
-- **Q6. Clean-account installer test.** Creating a test macOS user needs an administrator password, so you would create it (System Settings, Users and Groups) and I would drive the test from there. Also, your own account has Homebrew, Node, uv and Python 3.12 installed; while building I will use uv (already present) and will not install anything system-wide. OK?
-- **Q7. Repository name and owner** for the installer URL: `github.com/<you>/fiatvox`?
+- **Q1 Runtime folder:** `~/.fiatvox` for the runtime; `~/Library/Application Support/Fiat Vox/` for data. Approved.
+- **Q2 OCR:** Apple Vision first, PyMuPDF's built-in Tesseract as fallback; no Homebrew anywhere. Approved.
+- **Q3 Book model instead of an intermediate EPUB.** Approved.
+- **Q4 Voices:** all 28 English voices. Approved.
+- **Q5 `--note`:** the review stop's "send to the AI with a note" runs one review round led by the note. Approved.
+- **Q6 Clean-account installer test:** installer tested from scratch into a separate folder (Phase 5). The test on
+  a fresh macOS user account still needs that account, which needs an administrator password.
+- **Q7 Repository:** github.com/mstrudle/Fiatvox. It must be public before release, since the one-line installer
+  downloads from it without signing in.
