@@ -40,16 +40,33 @@ class Dialog(ModalScreen):
     def action_close(self) -> None:
         self.dismiss(None)
 
+    def on_button_pressed(self, event) -> None:
+        event.stop()  # never let a dialog's button reach the main screen behind it
+
+    def on_data_table_row_selected(self, event) -> None:
+        event.stop()
+
 
 # ----------------------------------------------------------------------------
 # add books
 # ----------------------------------------------------------------------------
 
 class AddBooks(Dialog):
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, files: list[str] | None = None):
         super().__init__()
         self.st = settings
-        self.files: list[str] = []
+        self.files: list[str] = list(files or [])
+
+    def on_mount(self) -> None:
+        self._show()
+
+    def on_paste(self, event) -> None:
+        """A drag from Finder anywhere on this dialog, whichever field has the cursor."""
+        paths = pickers.parse_paths(event.text)
+        if paths and any(pickers.is_book(p) for p in paths):
+            event.stop()
+            event.prevent_default()
+            self._added(paths)
 
     def compose(self) -> ComposeResult:
         with Vertical():

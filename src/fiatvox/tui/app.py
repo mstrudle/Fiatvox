@@ -76,10 +76,10 @@ class FiatVox(App):
                 yield ProgressBar(total=100, show_eta=False, id="all_bar")
         yield Static("", id="detail")
         with Horizontal(id="actions"):
-            yield Button("Add books", id="add", variant="primary")
-            yield Button("Start", id="start", variant="success")
-            yield Button("Cancel book", id="cancel", variant="error")
-            yield Button("Review", id="review")
+            yield Button("Add books", id="main_add", variant="primary")
+            yield Button("Start", id="main_start", variant="success")
+            yield Button("Cancel book", id="main_cancel", variant="error")
+            yield Button("Review", id="main_review")
         yield Footer()
 
     def main(self, selector: str, kind=None):
@@ -115,10 +115,10 @@ class FiatVox(App):
         overall = sum((1.0 if i.status in (q.DONE, q.FAILED, q.CANCELLED) else i.progress) for i in items)
         self.main("#all_bar", ProgressBar).update(progress=100 * overall / max(1, len(items)))
         self._detail()
-        self.main("#cancel").disabled = not self.runner.running
-        self.main("#start").disabled = self.runner.running or not self.queue.next_waiting()
+        self.main("#main_cancel").disabled = not self.runner.running
+        self.main("#main_start").disabled = self.runner.running or not self.queue.next_waiting()
         sel = self.selected()
-        self.main("#review").display = bool(sel and sel.status == q.REVIEW)
+        self.main("#main_review").display = bool(sel and sel.status == q.REVIEW)
 
     def selected(self) -> q.Item | None:
         t = self.main("#queue", DataTable)
@@ -146,7 +146,7 @@ class FiatVox(App):
             lines.append("Press S to resume it from where it stopped.")
         self.main("#detail", Static).update("\n".join(x for x in lines if x))
 
-    @on(DataTable.RowHighlighted)
+    @on(DataTable.RowHighlighted, "#queue")
     def _highlight(self) -> None:
         self._detail()
 
@@ -165,7 +165,17 @@ class FiatVox(App):
         self.call_from_thread(ui)
 
     # ------------------------------------------------------------------ actions
-    def action_add(self) -> None:
+    def on_paste(self, event) -> None:
+        """Files dragged from Finder onto the window arrive as a paste of their paths."""
+        from .pickers import is_book, parse_paths
+        if len(self.screen_stack) > 1:
+            return  # a dialog is open; it handles its own pastes
+        books = [p for p in parse_paths(event.text) if is_book(p)]
+        if books:
+            event.stop()
+            self.action_add(books)
+
+    def action_add(self, files: list[str] | None = None) -> None:
         def added(res):
             if not res:
                 return
@@ -173,7 +183,7 @@ class FiatVox(App):
                 self.queue.add(f, res["voice"], res["out"], res["review"])
             self.refresh_queue()
             self.action_start()
-        self.push_screen(screens.AddBooks(self.st), added)
+        self.push_screen(screens.AddBooks(self.st, files), added)
 
     def action_start(self) -> None:
         for it in self.queue.items:
@@ -281,23 +291,23 @@ class FiatVox(App):
         self.push_screen(screens.Confirm("A book is being worked on. Quit anyway? It stops now and resumes from "
                                          "where it stopped the next time you start Fiat Vox.", "Quit", "Stay"), go)
 
-    @on(Button.Pressed, "#add")
+    @on(Button.Pressed, "#main_add")
     def _b_add(self) -> None:
         self.action_add()
 
-    @on(Button.Pressed, "#start")
+    @on(Button.Pressed, "#main_start")
     def _b_start(self) -> None:
         self.action_start()
 
-    @on(Button.Pressed, "#cancel")
+    @on(Button.Pressed, "#main_cancel")
     def _b_cancel(self) -> None:
         self.action_cancel()
 
-    @on(Button.Pressed, "#review")
+    @on(Button.Pressed, "#main_review")
     def _b_review(self) -> None:
         self.action_open()
 
-    @on(DataTable.RowSelected)
+    @on(DataTable.RowSelected, "#queue")
     def _row_selected(self) -> None:
         self.action_open()
 

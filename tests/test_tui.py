@@ -77,7 +77,7 @@ async def test_review_stop_actions(env):
     qu.save()
     app = FiatVox()
     async with app.run_test(size=(120, 50)) as pilot:
-        assert app.query_one("#review").display
+        assert app.query_one("#main_review").display
         await pilot.press("enter")
         await pilot.pause()
         app.screen.query_one("#voice").value = "bm_lewis"
@@ -102,3 +102,52 @@ async def test_refresh_while_a_dialog_is_open(env):
         await pilot.pause()
         app.refresh_queue()   # the once-a-second refresh, with the voices dialog on top
         await pilot.pause(1.2)
+
+
+async def test_dialog_cancel_does_not_reach_the_running_book(env, monkeypatch):
+    from fiatvox import runner
+    from fiatvox.tui import screens
+    from fiatvox.tui.app import FiatVox
+    monkeypatch.setattr(runner.Runner, "running", property(lambda self: True))
+    cancelled = []
+    monkeypatch.setattr(runner.Runner, "cancel_current", lambda self: cancelled.append(True))
+    app = FiatVox()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("a")
+        await pilot.pause()
+        app.screen.query_one("#cancel").press()
+        await pilot.pause()
+        assert not isinstance(app.screen, (screens.AddBooks, screens.Confirm)), type(app.screen)
+        assert not cancelled
+
+
+async def test_drop_a_file_on_the_main_screen(env):
+    from textual import events
+
+    from fiatvox.tui import screens
+    from fiatvox.tui.app import FiatVox
+    tmp, _ = env
+    src = tmp / "Dropped Book.epub"
+    make_epub(src)
+    app = FiatVox()
+    async with app.run_test(size=(120, 40)) as pilot:
+        app.post_message(events.Paste(str(src).replace(" ", "\\ ")))   # how Terminal pastes a dragged file
+        await pilot.pause()
+        assert isinstance(app.screen, screens.AddBooks) and app.screen.files == [str(src)]
+
+
+async def test_drop_while_the_choose_button_has_focus(env):
+    from textual import events
+
+    from fiatvox.tui.app import FiatVox
+    tmp, _ = env
+    src = tmp / "Second Book.epub"
+    make_epub(src)
+    app = FiatVox()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("a")
+        await pilot.pause()
+        app.screen.query_one("#choose").focus()
+        app.screen.post_message(events.Paste(f"'{src}'"))
+        await pilot.pause()
+        assert app.screen.files == [str(src)]
