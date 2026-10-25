@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -74,23 +75,111 @@ def cmd_make(a) -> int:
             last[0] = now
 
     t0 = time.monotonic()
-    say(f"Preparing {src.name} (AI: {backend.label})")
-    book, qc = prepare(src, work, backend,
-                       PrepOptions(review_rounds=st.review_rounds if a.review_rounds is None else a.review_rounds,
-                                   redecide=a.redecide, force_ocr=a.force_ocr, ocr_engine=a.ocr or st.ocr_engine,
-                                   note=a.note or ""), progress)
+    from . import troubleshoot as ts
+    opts = PrepOptions(review_rounds=st.review_rounds if a.review_rounds is None else a.review_rounds,
+                       redecide=a.redecide, force_ocr=a.force_ocr, ocr_engine=a.ocr or st.ocr_engine,
+                       note=a.note or "")
+    kind = "pdf" if src.suffix.lower() == ".pdf" else "text"
+    incident = ts.Incident(book=work.name, source=str(src))
+    state = {"stage": "preparing", "reprepare": False, "book": None, "qc": None}
+
+    def context():
+        dec_path = work / "decisions.json"
+        dec = json.loads(dec_path.read_text(encoding="utf-8")) if dec_path.exists() else {}
+        return {"stage": state["stage"], "file": src.name, "kind": src.suffix.lower()[1:],
+                "size_mb": round(src.stat().st_size / 1e6, 1), "voice": voice,
+                "ai": backend.label, "options": vars(opts), "work_files": sorted(f.name for f in work.iterdir()),
+                "decisions": {k: (v if k in ("pages", "drop", "flags") else len(v) if isinstance(v, (list, dict))
+                                  else v) for k, v in dec.items() if not k.startswith("_")},
+                "warnings": (state["qc"] or {}).get("warnings", [])[:10]}
+
+    def apply(remedy: str, params: dict) -> str:
+        from .ingest import ocr as ocr_mod
+        dec_path = work / "decisions.json"
+        dec = json.loads(dec_path.read_text(encoding="utf-8")) if dec_path.exists() else None
+        state["reprepare"] = True
+        if remedy == "retry":
+            return "the step runs again unchanged"
+        if remedy == "force_ocr":
+            if kind != "pdf":
+                raise ValueError("only a PDF can be recognised again")
+            opts.force_ocr, opts.redecide = True, True
+            return "every page will be recognised again, then the chapters decided again"
+        if remedy == "ocr_engine":
+            eng = params.get("engine")
+            if kind != "pdf" or eng not in ("vision", "tesseract") or not ocr_mod.ocr_available(eng):
+                raise ValueError(f"OCR engine {eng!r} is not available for this book")
+            opts.ocr_engine, opts.force_ocr, opts.redecide = eng, True, True
+            return f"OCR with {eng}"
+        if remedy == "redecide":
+            opts.redecide = True
+            return "the AI decides chapters and cuts again"
+        if remedy == "heuristics":
+            opts.heuristics, opts.redecide = True, True
+            return "chapters and cuts decided with local rules"
+        if remedy == "no_review":
+            opts.review_rounds = 0
+            return "review rounds skipped"
+        if remedy == "no_ai_correction":
+            opts.ai_correction = False
+            return "AI correction of scanning errors skipped"
+        if dec is None:
+            raise ValueError("there are no saved decisions to change yet")
+        if remedy == "drop_sections":
+            if kind == "pdf":
+                raise ValueError("a PDF has pages, not sections")
+            extra = [int(x) for x in params.get("sections") or [] if str(x).isdigit()]
+            if not extra:
+                raise ValueError("no section numbers given")
+            dec["drop"] = sorted(set(dec.get("drop") or []) | set(extra))
+            result = f"sections {extra} cut"
+        elif remedy == "keep_pages":
+            from .ingest.pdf import parse_pages
+            if kind != "pdf":
+                raise ValueError("only a PDF has pages")
+            pages = str(params.get("pages") or "")
+            if not parse_pages(pages, 100000):
+                raise ValueError("the page list is empty or unreadable")
+            dec["pages"] = pages
+            result = f"keeping pages {pages}"
+        elif remedy == "replace_text":
+            find, rep = str(params.get("find") or ""), str(params.get("replace") or "")
+            if not find.strip() or len(find) > 120:
+                raise ValueError("the text to replace is empty or too long")
+            dec.setdefault("replacements", []).append([find, rep])
+            result = f'replacing "{find[:50]}" with "{rep[:50]}"'
+        else:
+            raise ValueError(f"unknown remedy {remedy}")
+        dec_path.write_text(json.dumps(dec, ensure_ascii=False, indent=1), encoding="utf-8")
+        opts.redecide = False
+        return result
+
+    def do_prepare():
+        state["stage"] = "preparing"
+        state["book"], state["qc"] = prepare(src, work, backend, opts, progress)
+        state["reprepare"] = False
+        return state["book"]
+
+    never = (KeyboardInterrupt, Cancelled)
+    try:
+        say(f"Preparing {src.name} (AI: {backend.label})")
+        ts.run_with_recovery("preparing the book", do_prepare, apply, backend, incident, context, say, never)
+    except ts.GaveUp as e:
+        say(f"Could not prepare the book: {e}")
+        say(f"Error report: {e.report}")
+        return 1
+    book, qc = state["book"], state["qc"]
     for w in qc["warnings"]:
         say(f"Warning: {w}")
     say(f"Prepared: {len(book.sections)} chapters, {book.words:,} words in {time.monotonic() - t0:.0f}s")
     if a.prepare_only:
+        _close_incident(incident, context, say)
         say(f"Work folder: {work}")
         return 0
 
     sections = None
     if a.sections:
         sections = sorted({int(x) - 1 for part in a.sections.split(",") for x in _range(part)})
-    name = safe_filename(f"{book.author} - {book.title}" if book.author else book.title or src.stem)
-    out = out_dir / f"{name}.m4b"
 
     def nprog(ev):
         if ev.get("stage") == "assembling":
@@ -103,12 +192,27 @@ def cmd_make(a) -> int:
             say(f"Narrating chapter {ev['chapter']} of {ev['chapters']} ({pct:.0f}%), {_fmt_eta(ev['eta'])} left")
             last[0] = now
 
-    say(f"Narrating with {voice} to {out}")
+    def do_narrate():
+        if state["reprepare"]:
+            do_prepare()
+        state["stage"] = "narrating"
+        b = state["book"]
+        name = safe_filename(f"{b.author} - {b.title}" if b.author else b.title or src.stem)
+        state["out"] = out_dir / f"{name}.m4b"
+        say(f"Narrating with {voice} to {state['out']}")
+        return narrate(b, voice, state["out"], st.silences(), st.bitrate_kbps, progress=nprog, sections=sections)
+
     try:
-        nar = narrate(book, voice, out, st.silences(), st.bitrate_kbps, progress=nprog, sections=sections)
+        nar = ts.run_with_recovery("narrating the book", do_narrate, apply, backend, incident, context, say, never)
     except (KeyboardInterrupt, Cancelled):
         say("Stopped. Everything narrated so far is kept; run the same command to resume.")
         return 130
+    except ts.GaveUp as e:
+        say(f"Could not narrate the book: {e}")
+        say(f"Error report: {e.report}")
+        return 1
+    _close_incident(incident, context, say)
+    book, qc, out = state["book"], state["qc"], state["out"]
     say(f"Done: {out.name}, {len(nar['chapters'])} chapters, {nar['duration'] / 3600:.2f} h of audio")
     if st.qc_report and not a.no_report:
         rp = out.with_name(out.stem + " - QC report.md")
@@ -119,6 +223,26 @@ def cmd_make(a) -> int:
         say("Imported into Apple Books" if ok else f"Could not import into Books: {err}")
     if st.notify:
         books.notify("Fiat Vox", f"{book.title or src.stem} is ready.")
+    return 0
+
+
+def _close_incident(incident, context, say) -> None:
+    """A failure that a remedy fixed still gets a report, so the cause can be fixed in the code."""
+    if incident.attempts:
+        incident.outcome = "recovered"
+        say(f"Recovered after {len(incident.attempts)} failure(s). Report: {incident.write(context())}")
+
+
+def cmd_errors(a) -> int:
+    from .troubleshoot import list_reports
+    reports = list_reports(a.limit)
+    if not reports:
+        print("No error reports.")
+        return 0
+    for r in reports:
+        print(f"{r['when']}  {r['outcome']:<32}  {r['book']}")
+        print(f"    {r['first_error'][:110]}")
+        print(f"    {r['file']}")
     return 0
 
 
@@ -261,6 +385,10 @@ def main(argv=None) -> int:
     p.add_argument("--no-import", action="store_true", help="do not import into Apple Books")
     p.add_argument("--no-report", action="store_true", help="do not write the QC report")
     p.set_defaults(func=cmd_make)
+
+    p = sub.add_parser("errors", help="list error reports from failed runs")
+    p.add_argument("--limit", type=int, default=20)
+    p.set_defaults(func=cmd_errors)
 
     p = sub.add_parser("signin", help="choose an AI provider and sign in")
     p.set_defaults(func=cmd_signin)

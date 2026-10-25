@@ -37,6 +37,8 @@ class PrepOptions:
     force_ocr: bool = False
     ocr_engine: str = "vision"
     note: str = ""            # the listener's note from the review stop
+    heuristics: bool = False  # decide structure with local rules even when AI is available
+    ai_correction: bool = True
 
 
 def _noop(stage, frac, msg):
@@ -101,7 +103,8 @@ def ingest(src: Path, work: Path, opts: PrepOptions, qc: dict, say: Progress):
 # build: apply decisions and measure
 # ----------------------------------------------------------------------------
 
-def build(kind: str, ctx: dict, decisions: dict, backend, work: Path, say: Progress) -> tuple[Book, dict]:
+def build(kind: str, ctx: dict, decisions: dict, backend, work: Path, say: Progress,
+          ai_correction: bool = True) -> tuple[Book, dict]:
     r: dict = {"warnings": [], "events": []}
     flags, reps = decisions.get("flags") or [], decisions.get("replacements") or []
     if kind == "pdf":
@@ -140,7 +143,9 @@ def build(kind: str, ctx: dict, decisions: dict, backend, work: Path, say: Progr
 
     say("Building", 0.3, "Auditing the text")
     r["audit_before"] = audit_mod.audit(book)
-    if not isinstance(backend, NoAI) and r["audit_before"]["issues"] > 0:
+    if not ai_correction:
+        r["events"].append("AI correction: skipped (turned off for this run)")
+    elif not isinstance(backend, NoAI) and r["audit_before"]["issues"] > 0:
         heavy = r["audit_before"]["verdict"] == "HEAVY"
         say("Correcting", 0.0, "Heavy damage: sending every paragraph to the AI" if heavy else
             f"Sending {r['audit_before']['issues']} flagged passages to the AI")
@@ -267,7 +272,7 @@ def prepare(src: Path, work: Path, backend, opts: PrepOptions, say: Progress = _
         decisions = json.loads(decisions_path.read_text(encoding="utf-8"))
         qc["events"].append("Decisions: reused the saved decisions.json")
     else:
-        if use_ai:
+        if use_ai and not opts.heuristics:
             say("Deciding", 0.0, "Asking the AI where chapters start and what to cut")
             try:
                 raw = ask_json(backend, dec.prompt_for(kind, dossier), purpose="decisions")
@@ -283,7 +288,7 @@ def prepare(src: Path, work: Path, backend, opts: PrepOptions, say: Progress = _
         qc["warnings"] += warns
         _save_json(decisions_path, decisions)
 
-    book, r = build(kind, ctx, decisions, backend, work, say)
+    book, r = build(kind, ctx, decisions, backend, work, say, opts.ai_correction)
 
     history, stop = [], "review rounds turned off" if not opts.review_rounds else ""
     rounds = opts.review_rounds if use_ai else 0
@@ -315,7 +320,7 @@ def prepare(src: Path, work: Path, backend, opts: PrepOptions, say: Progress = _
             stop = "the AI's proposed changes could not be applied"
             break
         say("Reviewing", (rnd - 0.5) / rounds, f"Rebuilding with {len(applied)} correction(s)")
-        new_book, new_r = build(kind, ctx, new_dec, backend, work, say)
+        new_book, new_r = build(kind, ctx, new_dec, backend, work, say, opts.ai_correction)
         # the listener's note may legitimately raise the score (for example by restoring cut text)
         worse = (new_r["words"] < r["words"] * 0.93 or len(new_r["validation"]) > len(r["validation"])
                  or (new_r["score"] > r["score"] and not (note and rnd == 1)))
