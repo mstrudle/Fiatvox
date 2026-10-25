@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: test
+    runs-on: macos-15
+    permissions:
+      contents: write   # to create the release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: The tag matches the version
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          grep -q "__version__ = \"$v\"" src/fiatvox/__init__.py
+          grep -q "^FIATVOX_VERSION=$v$" installer/components.env
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+      - name: Build the source archive and checksums
+        run: |
+          mkdir dist
+          git archive --format=tar.gz --prefix="fiatvox-$VERSION/" -o "dist/fiatvox-$VERSION.tar.gz" "$GITHUB_REF_NAME"
+          cp install.sh dist/install.sh
+          (cd dist && shasum -a 256 "fiatvox-$VERSION.tar.gz" install.sh > SHA256SUMS && cat SHA256SUMS)
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* --title "Fiat Vox $VERSION" --notes-file - <<NOTES
+          Install or update with:
+
+              curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh | bash
+
+          Every file the installer downloads is pinned and checked against its SHA-256 (see installer/components.env).
+          The checksums of this release's files are in SHA256SUMS.
+          NOTES

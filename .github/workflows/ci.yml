@@ -1,0 +1,43 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-15   # Apple Silicon
+    timeout-minutes: 40
+    env:
+      FIATVOX_HOME: ${{ github.workspace }}/.fiatvox
+      FIATVOX_DATA: ${{ github.workspace }}/.fiatvox-data
+      FIATVOX_DEVICE: cpu          # hosted runners have no Apple GPU
+      UV_PYTHON_PREFERENCE: only-managed
+      UV_CACHE_DIR: ${{ github.workspace }}/.uv-cache
+      HF_HOME: ${{ github.workspace }}/.hf
+      PYTHONWARNINGS: ignore
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Versions agree
+        run: |
+          v=$(python3 -c "import re;print(re.search(r'__version__ = \"(.+)\"', open('src/fiatvox/__init__.py').read())[1])")
+          grep -q "^version = \"$v\"" pyproject.toml
+          grep -q "^FIATVOX_VERSION=$v$" installer/components.env
+          echo "version $v"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            .uv-cache
+            .hf
+          key: deps-${{ runner.os }}-${{ hashFiles('uv.lock', 'installer/components.env') }}
+      - name: Set up uv, ffmpeg and Fiat Vox (pinned, checksums verified)
+        run: scripts/ci-setup.sh
+      - name: Installer script is valid
+        run: bash -n install.sh
+      - name: Tests
+        run: .venv/bin/python -m pytest -q -p no:warnings
