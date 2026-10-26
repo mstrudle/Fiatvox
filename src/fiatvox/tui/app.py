@@ -9,7 +9,7 @@ from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.widgets import DataTable, Input, Label, ProgressBar, RichLog, Static, TabbedContent, TabPane
+from textual.widgets import Button, DataTable, Input, Label, ProgressBar, RichLog, Static, TabbedContent, TabPane
 
 from .. import __version__
 from .. import bookqueue as q
@@ -122,6 +122,8 @@ class FiatVox(App):
     #qbars { height: 1; padding: 0 1; }
     #qbars Label { width: 11; }
     #qbars ProgressBar { width: 1fr; }
+    #actions { height: auto; padding: 0 1; background: #000000; }
+    #actions Button { margin-right: 1; }
     #cmd { border: tall $accent 30%; background: #000000; }
     #cmd:focus { border: tall $accent; }
     #status { height: 1; padding: 0 1; color: $text-muted; }
@@ -177,6 +179,11 @@ class FiatVox(App):
                     yield Label("All books")
                     yield ProgressBar(total=100, show_eta=False, id="all_bar")
                 yield Static("", id="detail")
+        with Horizontal(id="actions"):
+            yield Button("Add books", id="main_add", variant="primary")
+            yield Button("Start", id="main_start", variant="success")
+            yield Button("Cancel book", id="main_cancel", variant="error")
+            yield Button("Review", id="main_review", variant="warning")
         yield Input(placeholder="Type / for a command, or drag a book here", id="cmd",
                     suggester=SuggestFromList([c for c, _ in COMMANDS] + ["/up", "/down"], case_sensitive=False))
         yield Static("", id="status")
@@ -260,6 +267,10 @@ class FiatVox(App):
         self._detail()
         self.main("#info", Static).update(self._info_text())
         self._telemetry()
+        self.main("#main_cancel").disabled = not self.runner.running
+        self.main("#main_start").disabled = self.runner.running or not (
+            self.queue.next_waiting() or any(i.status == q.CANCELLED for i in self.queue.items))
+        self.main("#main_review").display = any(i.status == q.REVIEW for i in self.queue.items)
         cur = self.runner.current
         status = (f"Working on {cur.name}: {cur.message}" if cur else
                   "Ready. Type /start to run the queue." if self.queue.next_waiting() else "Ready.")
@@ -634,6 +645,25 @@ class FiatVox(App):
         """Quit at once and end all work, so nothing keeps running on the Mac. The book resumes next time."""
         stopped = self.runner.stop()
         self.exit(stopped)
+
+    @on(Button.Pressed, "#main_add")
+    def _b_add(self) -> None:
+        self.action_add()
+
+    @on(Button.Pressed, "#main_start")
+    def _b_start(self) -> None:
+        self.action_start()
+
+    @on(Button.Pressed, "#main_cancel")
+    def _b_cancel(self) -> None:
+        self.action_cancel()
+
+    @on(Button.Pressed, "#main_review")
+    def _b_review(self) -> None:
+        """Review the book that is waiting, whichever book is selected."""
+        it = next((i for i in self.queue.items if i.status == q.REVIEW), None)
+        if it:
+            self.push_screen(screens.Review(it), lambda res: self._review_done(it, res))
 
     @on(DataTable.RowSelected, "#queue")
     def _row_selected(self) -> None:

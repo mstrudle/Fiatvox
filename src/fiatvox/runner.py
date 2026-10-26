@@ -75,6 +75,10 @@ class Runner:
                 os.killpg(proc.pid, signal.SIGKILL)  # the worker, its AI request, ffmpeg and caffeinate
             except OSError:
                 pass
+            try:
+                proc.wait(timeout=2)  # let the system finish removing it
+            except subprocess.TimeoutExpired:
+                pass
         if self.current and self.current.status in q.ACTIVE:
             self.current.status, self.current.message = q.WAITING, "Stopped when Fiat Vox quit; resumes from here"
             self.queue.save()

@@ -247,3 +247,25 @@ async def test_now_tab_shows_the_current_book(env):
         assert app.main("#chapters", DataTable).row_count == 1
         log = "\n".join(str(line) for line in app.main("#log").lines)
         assert "Asking the AI where chapters start" in log and "OCR page" not in log
+
+
+async def test_buttons_add_and_review(env):
+    tmp, _ = env
+    from fiatvox import bookqueue as q
+    from fiatvox.tui import screens
+    from fiatvox.tui.app import FiatVox
+    qu = q.Queue()
+    it = qu.add(str(tmp / "b.epub"), "bm_george", str(tmp), review_stop=True)
+    it.status, it.preview, it.review_chapter = q.REVIEW, str(tmp / "p.m4a"), "Chapter One"
+    qu.save()
+    app = FiatVox()
+    async with app.run_test(size=(140, 45)) as pilot:
+        assert app.main("#main_review").display and app.main("#main_cancel").disabled
+        app.main("#main_add").press()
+        await pilot.pause()
+        assert isinstance(app.screen, screens.AddBooks)
+        app.screen.query_one("#cancel").press()
+        await pilot.pause()
+        app.main("#main_review").press()
+        await pilot.pause()
+        assert isinstance(app.screen, screens.Review)
