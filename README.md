@@ -33,23 +33,29 @@ fiatvox
 The first time, Fiat Vox asks how it should reach an AI model (see the next section). You can choose "No AI" and
 change your mind later in Settings.
 
-Then press **A** to add books. You can use the Mac's file picker, type a path, or drag files from Finder into the
-window. For each book you choose a voice, where to save the audiobook, and whether to use the review stop. The
-queue starts by itself.
+Fiat Vox opens on its home screen: the name, a box showing your AI, default voice, output folder and queue,
+and every command. Type a command on the line at the bottom and press Return, or drag books from Finder onto the
+window to add them. For each book you choose a voice, where to save the audiobook, and whether to use the review
+stop. The queue starts by itself.
 
-| Key | What it does |
+| Command | What it does |
 |---|---|
-| A | Add books |
-| S | Start (or resume) the queue |
-| C | Cancel the current book; everything narrated so far is kept, and it resumes from there |
-| Return | Review a book that has paused, or show a finished one in Finder |
-| R | Remove a book from the queue |
-| U, D | Move a book up or down |
-| V | Voices: Return plays a five-second sample; D makes a voice the default |
-| P | Fix a pronunciation |
-| T | Settings |
-| E | Error reports |
-| Q | Quit (work in progress resumes next time) |
+| `/add` | Add books (or drag them onto the window) |
+| `/start` | Start or resume the queue |
+| `/cancel` | Stop the current book; everything narrated so far is kept, and it resumes from there |
+| `/review` | Listen to a paused book's first chapter and choose what to do |
+| `/open` | Show the selected audiobook in Finder |
+| `/remove` | Take the selected book off the list |
+| `/new` | Start a new session: clear finished books from the list (their audiobooks stay where they are) |
+| `/voices` | Hear a five-second sample of each voice; D makes one the default |
+| `/pronounce` | Fix how a word is said |
+| `/settings` | AI, pauses, folders and more |
+| `/errors` | Reports of anything that failed |
+| `/help` | All commands and keys |
+| `/quit` | Quit (work in progress resumes next time) |
+
+Up and Down choose a book in the list, and Return on an empty command line reviews or opens it. Commands complete
+as you type (press the right arrow to accept).
 
 The queue is saved, so you can quit at any time; the Mac stays awake while Fiat Vox is working.
 

@@ -16,6 +16,14 @@ def env(tmp_path, monkeypatch):
     return tmp_path, started
 
 
+async def run_cmd(app, pilot, text):
+    """Type a command on the command line and press Return."""
+    app.main("#cmd").value = text
+    app.main("#cmd").focus()
+    await pilot.press("enter")
+    await pilot.pause()
+
+
 async def test_add_book_by_path(env):
     tmp, started = env
     from fiatvox import bookqueue as q
@@ -25,8 +33,7 @@ async def test_add_book_by_path(env):
     app = FiatVox()
     async with app.run_test(size=(120, 40)) as pilot:
         assert app.query_one("#empty").display
-        await pilot.press("a")
-        await pilot.pause()
+        await run_cmd(app, pilot, "/add")
         inp = app.screen.query_one("#path")
         inp.value = f"'{src}'"            # as a drag from Finder pastes it
         await pilot.pause()
@@ -43,8 +50,7 @@ async def test_settings_save_and_validate(env):
     from fiatvox.tui.app import FiatVox
     app = FiatVox()
     async with app.run_test(size=(120, 50)) as pilot:
-        await pilot.press("t")
-        await pilot.pause()
+        await run_cmd(app, pilot, "/settings")
         app.screen.query_one("#silence_paragraph").value = "99"
         app.screen.query_one("#save").press()
         await pilot.pause()
@@ -62,8 +68,7 @@ async def test_voices_list_every_voice(env):
     from fiatvox.tui.app import FiatVox
     app = FiatVox()
     async with app.run_test(size=(120, 50)) as pilot:
-        await pilot.press("v")
-        await pilot.pause()
+        await run_cmd(app, pilot, "/voices")
         assert app.screen.query_one("#list").option_count == len(VOICES) == 28
 
 
@@ -77,9 +82,7 @@ async def test_review_stop_actions(env):
     qu.save()
     app = FiatVox()
     async with app.run_test(size=(120, 50)) as pilot:
-        assert app.query_one("#main_review").display
-        await pilot.press("enter")
-        await pilot.pause()
+        await run_cmd(app, pilot, "/review")
         app.screen.query_one("#voice").value = "bm_lewis"
         app.screen.query_one("#voice_redo").press()
         await pilot.pause()
@@ -87,8 +90,7 @@ async def test_review_stop_actions(env):
         assert item.voice == "bm_lewis" and item.status == q.WAITING and not item.reviewed
         assert item.job().review_stop  # the first chapter is checked again in the new voice
         item.status = q.REVIEW
-        await pilot.press("enter")
-        await pilot.pause()
+        await run_cmd(app, pilot, "")          # Return on an empty command line opens the selected book
         app.screen.query_one("#continue").press()
         await pilot.pause()
         assert item.reviewed and not item.job().review_stop and item.status == q.WAITING
@@ -98,8 +100,7 @@ async def test_refresh_while_a_dialog_is_open(env):
     from fiatvox.tui.app import FiatVox
     app = FiatVox()
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("v")
-        await pilot.pause()
+        await run_cmd(app, pilot, "/voices")
         app.refresh_queue()   # the once-a-second refresh, with the voices dialog on top
         await pilot.pause(1.2)
 
@@ -113,8 +114,7 @@ async def test_dialog_cancel_does_not_reach_the_running_book(env, monkeypatch):
     monkeypatch.setattr(runner.Runner, "cancel_current", lambda self: cancelled.append(True))
     app = FiatVox()
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("a")
-        await pilot.pause()
+        await run_cmd(app, pilot, "/add")
         app.screen.query_one("#cancel").press()
         await pilot.pause()
         assert not isinstance(app.screen, (screens.AddBooks, screens.Confirm)), type(app.screen)
@@ -131,7 +131,7 @@ async def test_drop_a_file_on_the_main_screen(env):
     make_epub(src)
     app = FiatVox()
     async with app.run_test(size=(120, 40)) as pilot:
-        app.post_message(events.Paste(str(src).replace(" ", "\\ ")))   # how Terminal pastes a dragged file
+        app.main("#cmd").post_message(events.Paste(str(src).replace(" ", "\\ ")))   # how Terminal pastes a drag
         await pilot.pause()
         assert isinstance(app.screen, screens.AddBooks) and app.screen.files == [str(src)]
 
@@ -145,8 +145,7 @@ async def test_drop_while_the_choose_button_has_focus(env):
     make_epub(src)
     app = FiatVox()
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("a")
-        await pilot.pause()
+        await run_cmd(app, pilot, "/add")
         app.screen.query_one("#choose").focus()
         app.screen.post_message(events.Paste(f"'{src}'"))
         await pilot.pause()
@@ -158,8 +157,7 @@ async def test_default_voice_marker_moves(env):
     from fiatvox.tui.app import FiatVox
     app = FiatVox()
     async with app.run_test(size=(120, 50)) as pilot:
-        await pilot.press("v")
-        await pilot.pause()
+        await run_cmd(app, pilot, "/voices")
         ol = app.screen.query_one("#list")
         ol.highlighted = ol.get_option_index("bm_lewis")
         await pilot.press("d")
@@ -167,3 +165,50 @@ async def test_default_voice_marker_moves(env):
         assert "(default)" in str(ol.get_option("bm_lewis").prompt)
         assert "(default)" not in str(ol.get_option("bm_george").prompt)
     assert Settings.load().default_voice == "bm_lewis"
+
+
+async def test_new_session_clears_finished_books(env):
+    tmp, _ = env
+    from fiatvox import bookqueue as q
+    from fiatvox.tui.app import FiatVox
+    qu = q.Queue()
+    done = qu.add(str(tmp / "a.epub"), "bm_george", str(tmp))
+    waiting = qu.add(str(tmp / "b.epub"), "bm_george", str(tmp))
+    done.status = q.DONE
+    qu.save()
+    app = FiatVox()
+    async with app.run_test(size=(120, 45)) as pilot:
+        await run_cmd(app, pilot, "/new")
+        assert [i.id for i in app.queue.items] == [waiting.id]
+    assert [i.id for i in q.Queue.load().items] == [waiting.id]
+
+
+async def test_unknown_command_and_help(env):
+    from fiatvox.tui import screens
+    from fiatvox.tui.app import FiatVox
+    app = FiatVox()
+    async with app.run_test(size=(120, 45)) as pilot:
+        await run_cmd(app, pilot, "/frobnicate")
+        assert not isinstance(app.screen, screens.Dialog)
+        await run_cmd(app, pilot, "/help")
+        assert isinstance(app.screen, screens.HelpDialog)
+
+
+async def test_book_dragged_onto_the_command_line(env):
+    tmp, _ = env
+    from fiatvox.tui import screens
+    from fiatvox.tui.app import FiatVox
+    src = tmp / "Dragged In.epub"
+    make_epub(src)
+    app = FiatVox()
+    async with app.run_test(size=(120, 45)) as pilot:
+        app.main("#cmd").value = str(src).replace(" ", "\\ ")
+        await pilot.pause()
+        assert isinstance(app.screen, screens.AddBooks) and app.screen.files == [str(src)]
+
+
+def test_commands_and_paths_are_told_apart():
+    from fiatvox.tui.app import is_command
+    assert is_command("/add") and is_command("/new ") and is_command("/add ~/Books/x.epub") and is_command("/?")
+    assert not is_command("/Users/me/Books/On War.epub") and not is_command("/Volumes/x/y.pdf")
+    assert not is_command("~/Books/x.epub")

@@ -690,3 +690,24 @@ class ErrorsDialog(Dialog):
     @on(Button.Pressed, "#close")
     def _close(self) -> None:
         self.dismiss(None)
+
+
+class HelpDialog(Dialog):
+    def __init__(self, commands):
+        super().__init__()
+        self.commands = commands
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label("Commands", classes="title")
+            lines = [f"[b]{c:<12}[/b]{d}" for c, d in self.commands]
+            lines += ["", "[b]Keys[/b]", "Up, Down     choose a book in the list",
+                      "Return       on an empty command line: review or open the selected book",
+                      "Right arrow  complete a command as you type it", "Ctrl+Q       quit",
+                      "", "Drag books from Finder onto the window to add them."]
+            yield Static("\n".join(lines))
+            yield Button("Close", id="close")
+
+    @on(Button.Pressed, "#close")
+    def _close(self) -> None:
+        self.dismiss(None)
