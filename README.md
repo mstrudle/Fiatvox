@@ -37,7 +37,8 @@ Fiat Vox has three tabs. **Home** shows the name, a box with your AI, default vo
 and every command. **Now** shows what Fiat Vox is doing for the book in progress: where it comes from and where it
 goes, a telemetry panel (overall progress, chapters done, time elapsed and left, narration speed, and the current
 chapter's paragraphs), a running log of each step, and the chapters finished so far with their lengths. Fiat Vox
-switches to Now by itself when a book starts. **Queue** lists every book with its status. Type a command on the line at the bottom and press Return, or drag books from Finder onto the
+switches to Now by itself when a book starts. When the book is finished it leaves Now, and Fiat Vox goes back
+to Home unless another book is starting. **Queue** lists every book with its status. Type a command on the line at the bottom and press Return, or drag books from Finder onto the
 window to add them. For each book you choose a voice, where to save the audiobook, and whether to use the review
 stop. The queue starts by itself.
 

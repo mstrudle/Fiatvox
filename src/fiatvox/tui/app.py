@@ -85,6 +85,7 @@ def is_command(text: str) -> bool:
 ALIASES = {"/a": "/add", "/s": "/start", "/c": "/cancel", "/r": "/review", "/v": "/voices", "/p": "/pronounce",
            "/t": "/settings", "/e": "/errors", "/q": "/quit", "/exit": "/quit", "/h": "/help", "/?": "/help",
            "/clear": "/new", "/n": "/now", "/list": "/queue"}
+IDLE = "Nothing is being worked on. Type /add to add books, or /start to run the queue."
 QUIET_STAGES = ("OCR page", "AI request")  # progress counters: shown in the telemetry, not each in the log
 
 
@@ -164,8 +165,7 @@ class FiatVox(App):
                 yield Static("Or type a command below, or drag books from Finder onto this window.",
                              id="home_hint")
             with TabPane("Now", id="now"):
-                yield Static("Nothing is being worked on. Type /add to add books, or /start to run the queue.",
-                             id="now_head", classes="panel")
+                yield Static(IDLE, id="now_head", classes="panel")
                 with Vertical(id="telemetry", classes="panel"):
                     with Horizontal():
                         yield Label("Overall")
@@ -413,18 +413,28 @@ class FiatVox(App):
             t["phase"] = "assembling"
             if ev.get("total"):
                 t["asm"] = ev["done"] / max(1, ev["total"])
-        elif typ in ("done", "review", "error", "cancelled"):
+        elif typ == "review":
             t["elapsed_final"] = time.monotonic() - t["started"]
             t["phase"] = "finished"
-            if typ == "done":
-                self._log(f"[b]Done[/b]: {ev.get('file', '')}" + ("  (added to Apple Books)" if ev.get("imported") else ""))
-            elif typ == "review":
-                self._log(f"[b]Paused for review[/b]: \"{ev.get('chapter')}\". Type /review to listen.")
-            elif typ == "error":
-                self._log(f"[b red]Failed[/b red]: {ev.get('msg', '')}")
-            else:
-                self._log("Stopped. Everything narrated so far is kept.")
+            self._log(f"[b]Paused for review[/b]: \"{ev.get('chapter')}\". Type /review to listen.")
+        elif typ in ("done", "error", "cancelled"):
+            self._clear_now()   # the book has left: what happened to it is on the Queue tab
+            return
         self._telemetry()
+
+    def _clear_now(self) -> None:
+        """Empty the Now tab, and go back to Home unless another book is about to start."""
+        self.tele = {}
+        self.main("#log", RichLog).clear()
+        self.main("#chapters", DataTable).clear()
+        self.main("#now_head", Static).update(IDLE)
+        for bar in ("#overall_bar", "#chapter_bar"):
+            self.main(bar, ProgressBar).update(progress=0)
+        for txt in ("#overall_txt", "#chapter_txt"):
+            self.main(txt, Static).update("")
+        if (self.main("#tabs", TabbedContent).active == "now" and len(self.screen_stack) == 1
+                and not self.queue.next_waiting()):
+            self.show_tab("home")
 
     def selected(self) -> q.Item | None:
         t = self.main("#queue", DataTable)

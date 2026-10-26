@@ -248,6 +248,32 @@ async def test_now_tab_shows_the_current_book(env):
         log = "\n".join(str(line) for line in app.main("#log").lines)
         assert "Asking the AI where chapters start" in log and "OCR page" not in log
 
+        item.status = q.DONE
+        app._tele_event(item, {"type": "done", "file": str(tmp / "On War.m4b")})
+        await pilot.pause()
+        assert app.main("#tabs", TabbedContent).active == "home"
+        assert "Nothing is being worked on" in str(app.main("#now_head").render())
+        assert app.main("#chapters", DataTable).row_count == 0 and not app.main("#log").lines
+
+
+async def test_a_book_paused_for_review_stays_in_now(env):
+    tmp, _ = env
+    from textual.widgets import TabbedContent
+    from fiatvox import bookqueue as q
+    from fiatvox.tui.app import FiatVox
+    qu = q.Queue()
+    qu.add(str(tmp / "War.epub"), "bm_george", str(tmp), review_stop=True)
+    qu.save()
+    app = FiatVox()
+    async with app.run_test(size=(140, 45)) as pilot:
+        item = app.queue.items[0]
+        item.status = q.PREPARING
+        app._tele_event(item, {"type": "status"})
+        item.status = q.REVIEW
+        app._tele_event(item, {"type": "review", "chapter": "Book One"})
+        await pilot.pause()
+        assert app.main("#tabs", TabbedContent).active == "now"
+        assert "War" in str(app.main("#now_head").render())
 
 async def test_buttons_add_and_review(env):
     tmp, _ = env
