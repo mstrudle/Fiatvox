@@ -103,7 +103,7 @@ class FiatVox(App):
     #info { width: 46; height: auto; padding-right: 2; border-right: solid $accent 30%; }
     #cmds { width: 1fr; height: auto; padding-left: 2; }
     #info, #cmds Static { height: auto; }
-    #home_hint { margin: 1 4; color: $text-muted; }
+    #home_hint { margin: 1 4; color: $text-muted; width: 100%; content-align: center middle; }
     .panel { border: round $accent 60%; border-title-color: $accent; border-title-align: center;
              height: auto; padding: 0 1; margin: 0 1; }
     #now_head { height: auto; }
@@ -122,8 +122,8 @@ class FiatVox(App):
     #qbars { height: 1; padding: 0 1; }
     #qbars Label { width: 11; }
     #qbars ProgressBar { width: 1fr; }
-    #actions { height: auto; padding: 0 1; background: #000000; }
-    #actions Button { margin-right: 1; }
+    #actions { height: auto; width: 100%; align-horizontal: center; margin: 1 2 0 2; background: #000000; }
+    #actions Button { width: 18; margin: 0 2; }
     #cmd { border: tall $accent 30%; background: #000000; }
     #cmd:focus { border: tall $accent; }
     #status { height: 1; padding: 0 1; color: $text-muted; }
@@ -152,7 +152,13 @@ class FiatVox(App):
                     with Vertical(id="cmds"):
                         yield Static(f"[b {ACCENT}]Commands[/]")
                         yield Static(self._commands_text())
-                yield Static("Type a command below, or drag books from Finder onto this window.", id="home_hint")
+                with Horizontal(id="actions"):
+                    yield Button("Add books", id="main_add", variant="primary")
+                    yield Button("Start", id="main_start", variant="success")
+                    yield Button("Review", id="main_review", variant="warning")
+                    yield Button("Cancel book", id="main_cancel", variant="error")
+                yield Static("Or type a command below, or drag books from Finder onto this window.",
+                             id="home_hint")
             with TabPane("Now", id="now"):
                 yield Static("Nothing is being worked on. Type /add to add books, or /start to run the queue.",
                              id="now_head", classes="panel")
@@ -179,11 +185,6 @@ class FiatVox(App):
                     yield Label("All books")
                     yield ProgressBar(total=100, show_eta=False, id="all_bar")
                 yield Static("", id="detail")
-        with Horizontal(id="actions"):
-            yield Button("Add books", id="main_add", variant="primary")
-            yield Button("Start", id="main_start", variant="success")
-            yield Button("Cancel book", id="main_cancel", variant="error")
-            yield Button("Review", id="main_review", variant="warning")
         yield Input(placeholder="Type / for a command, or drag a book here", id="cmd",
                     suggester=SuggestFromList([c for c, _ in COMMANDS] + ["/up", "/down"], case_sensitive=False))
         yield Static("", id="status")

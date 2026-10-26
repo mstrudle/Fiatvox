@@ -1,6 +1,6 @@
 [project]
 name = "fiatvox"
-version = "0.1.5"
+version = "0.1.6"
 description = "Turn EPUB and PDF books into chaptered audiobooks with Kokoro, on Apple Silicon Macs."
 readme = "README.md"
 license = "AGPL-3.0-or-later"
