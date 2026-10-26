@@ -96,7 +96,7 @@ Fiat Vox never signs in to Claude itself. Claude subscriptions are reached only 
 
 ## Voices
 
-All 28 of Kokoro's English voices are available: 20 American and 8 British, female and male. Press **V** to hear
+All 28 of Kokoro's English voices are available: 20 American and 8 British, female and male. Type `/voices` to hear
 a five-second sample of each. The first letter of a voice's name sets its accent (`a` American, `b` British).
 
 ## Pronunciation
@@ -106,7 +106,7 @@ War Two", "Napoleon III" as "Napoleon the Third", "XVIII Airborne Corps" as "Eig
 as "500 pounds", "Lt. Col. Smith" as "Lieutenant Colonel Smith", and "U.S. Army" without a pause in the middle.
 Chapter names in Apple Books stay exactly as printed.
 
-When a word is still read wrongly, press **P**: type the word and how it should sound ("quasi", "kwah-zee"). The AI
+When a word is still read wrongly, type `/pronounce`, then the word and how it should sound ("quasi", "kwah-zee"). The AI
 proposes the sounds, Fiat Vox checks them, you hear the word before and after, and it is saved only if you
 approve. Fixes are kept per accent, because American and British voices need different ones:
 
@@ -126,7 +126,7 @@ recognise a scanned PDF again, decide the chapters again, skip a step, cut a sec
 three times. The AI never changes Fiat Vox's code or files; it only picks from that list.
 
 Every failure, including ones that were fixed, is written as a report in
-`~/Library/Application Support/Fiat Vox/errors/`. Press **E** in the app or run `fiatvox errors` to see them.
+`~/Library/Application Support/Fiat Vox/errors/`. Type `/errors` in the app or run `fiatvox errors` to see them.
 
 `fiatvox doctor` checks every part of the install and repairs what it can.
 
