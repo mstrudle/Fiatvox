@@ -348,8 +348,10 @@ def prepare(src: Path, work: Path, backend, opts: PrepOptions, say: Progress = _
     qc["review"] = history
     qc["review_stop"] = stop
     qc["note"] = note
-    qc["usage"] = {"calls": backend.usage.calls, "input_tokens": backend.usage.input_tokens,
-                   "output_tokens": backend.usage.output_tokens, "cost": round(backend.usage.cost, 4)}
+    u = backend.usage
+    qc["usage"] = {"calls": u.calls, "input_tokens": u.input_tokens, "output_tokens": u.output_tokens,
+                   "cache_read": u.cache_read, "cache_write": u.cache_write, "cost": round(u.cost, 4),
+                   "billing": u.billing}
     if book.cover is None and kind == "pdf":
         book.cover = pdf_in.cover_image(src, work / "cover.png")
     elif kind == "epub" and ctx["raw"].cover:

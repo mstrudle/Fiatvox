@@ -102,6 +102,7 @@ def run(job: Job, emit: Emit, cancelled: Callable[[], bool] = lambda: False) -> 
         reset(work)
     provider = "none" if job.no_ai else (job.provider or st.ai_provider)
     backend = get_backend(provider, job.model if job.model is not None else st.ai_model)
+    backend.usage.on_change = lambda snap: emit({"type": "usage", **snap})
 
     def log(msg: str) -> None:
         emit({"type": "log", "msg": msg})
@@ -222,7 +223,7 @@ def run(job: Job, emit: Emit, cancelled: Callable[[], bool] = lambda: False) -> 
     if st.notify:
         books.notify("Fiat Vox", f"{book.title or src.stem} is ready.")
     emit({"type": "done", "file": str(out), "report": rp, "chapters": len(nar["chapters"]),
-          "duration": nar["duration"], "imported": imported})
+          "duration": nar["duration"], "imported": imported, "usage": backend.usage.snapshot()})
     return Result(OK, file=str(out), report=rp)
 
 

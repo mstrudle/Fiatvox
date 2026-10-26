@@ -79,6 +79,9 @@ def cmd_make(a) -> int:
                 say(f"QC report: {ev['report']}")
             if ev["imported"]:
                 say("Imported into Apple Books")
+            if (ev.get("usage") or {}).get("calls"):
+                from .ai.base import counter_text
+                say(f"AI use: {counter_text(ev['usage'])}")
         elif t == "error":
             say(ev["msg"])
             if ev.get("report"):
@@ -120,9 +123,13 @@ def cmd_worker(a) -> int:
                     os._exit(130)  # still busy (an AI request): leave anyway; the cache keeps finished work
         threading.Thread(target=watch, daemon=True).start()
 
+    import threading
+    out_lock = threading.Lock()  # AI corrections run in parallel threads; keep each event on its own line
+
     def emit(ev: dict) -> None:
-        sys.stdout.write(json.dumps(ev, ensure_ascii=False) + "\n")
-        sys.stdout.flush()
+        with out_lock:
+            sys.stdout.write(json.dumps(ev, ensure_ascii=False) + "\n")
+            sys.stdout.flush()
 
     r = jobs.run(job, emit, cancelled=lambda: stop["flag"])
     return r.code

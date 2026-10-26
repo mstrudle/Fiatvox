@@ -48,8 +48,12 @@ def write(path: Path, qc: dict, narration: dict | None) -> Path:
     L.append(f"5. **Automated review:** {len(rv)} round(s), {acc} accepted; stopped because {qc.get('review_stop') or 'n/a'}.")
     u = qc.get("usage") or {}
     if u.get("calls"):
-        cost = f", about ${u['cost']:.2f}" if u.get("cost") else ""
-        L.append(f"6. **AI use:** {u['calls']} request(s), {u['input_tokens']:,} tokens in, "
+        cost = ""
+        if u.get("cost"):
+            cost = (f", about ${u['cost']:.2f} at API prices, covered by your plan" if u.get("billing") == "sub"
+                    else f", about ${u['cost']:.2f}")
+        cached = f" ({u['cache_read']:,} more read from the cache)" if u.get("cache_read") else ""
+        L.append(f"6. **AI use:** {u['calls']} request(s), {u['input_tokens']:,} tokens in{cached}, "
                  f"{u['output_tokens']:,} out{cost}.")
     L.append("")
     if qc.get("note"):

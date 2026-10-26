@@ -58,6 +58,11 @@ stop. The queue starts by itself.
 | `/help` | All commands and keys |
 | `/quit` | Quit at once; all work stops, nothing keeps running, and the book resumes next time |
 
+The bottom line shows the AI's token use since Fiat Vox opened, in the same notation as Pi and Feynman:
+`↑` new input tokens, `↓` output tokens, `R` read from the cache, `W` written to the cache, `CH` the share of input
+served from the cache, then the cost and how it is billed ("(sub)" means the amount is the API-equivalent price,
+covered by your plan; "(api)" means it is billed per token). Each book's QC report records the same figures.
+
 On the Queue tab, Up and Down choose a book, and Return on an empty command line reviews or opens it. Commands complete
 as you type (press the right arrow to accept).
 

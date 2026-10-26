@@ -269,3 +269,28 @@ async def test_buttons_add_and_review(env):
         app.main("#main_review").press()
         await pilot.pause()
         assert isinstance(app.screen, screens.Review)
+
+
+async def test_token_counter_sums_runs(env):
+    from fiatvox import bookqueue as q
+    from fiatvox.tui.app import FiatVox
+    tmp, _ = env
+    qu = q.Queue()
+    a = qu.add(str(tmp / "a.epub"), "bm_george", str(tmp))
+    qu.save()
+    app = FiatVox()
+    async with app.run_test(size=(150, 45)) as pilot:
+        item = app.queue.items[0]
+        item.status = q.PREPARING
+        app._usage_event(item, {"type": "status"})
+        app._usage_event(item, {"type": "usage", "calls": 2, "input": 100, "output": 2000, "cache_read": 50000,
+                                "cache_write": 3000, "cost": 0.5, "billing": "sub"})
+        app._usage_event(item, {"type": "usage", "calls": 3, "input": 150, "output": 3000, "cache_read": 90000,
+                                "cache_write": 4000, "cost": 0.75, "billing": "sub"})   # cumulative: replaces
+        app._usage_event(item, {"type": "status"})                                       # a second run of the book
+        app._usage_event(item, {"type": "usage", "calls": 1, "input": 10, "output": 500, "cache_read": 0,
+                                "cache_write": 0, "cost": 0.25, "billing": "sub"})
+        app.refresh_queue()
+        await pilot.pause()
+        text = str(app.main("#tokens").render())
+        assert "↑160" in text and "↓3.5k" in text and "$1.000 (sub)" in text and "4 AI requests" in text

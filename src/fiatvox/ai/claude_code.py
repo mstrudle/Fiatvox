@@ -49,7 +49,7 @@ class ClaudeCodeBackend:
     def __init__(self, model: str = ""):
         self.model = model or "sonnet"
         self.label = f"Claude Code ({self.model})"
-        self.usage = Usage()
+        self.usage = Usage(billing="sub")
 
     def available(self) -> tuple[bool, str]:
         if not find_claude():
@@ -78,7 +78,14 @@ class ClaudeCodeBackend:
             if "authenticate" in msg.lower() or "login" in msg.lower() or "oauth" in msg.lower():
                 msg += ". " + SIGN_IN_HELP
             raise AIError(f"Claude Code: {msg}")
-        u = d.get("usage") or {}
-        self.usage.add(purpose, int(u.get("input_tokens") or 0) + int(u.get("cache_read_input_tokens") or 0),
-                       int(u.get("output_tokens") or 0))
+        self.usage.add(purpose, **usage_of(d))
         return str(d.get("result") or "")
+
+
+def usage_of(d: dict) -> dict:
+    """Tokens and cost from Claude Code's JSON result."""
+    u = d.get("usage") or {}
+    return {"inp": int(u.get("input_tokens") or 0), "out": int(u.get("output_tokens") or 0),
+            "cache_read": int(u.get("cache_read_input_tokens") or 0),
+            "cache_write": int(u.get("cache_creation_input_tokens") or 0),
+            "cost": float(d.get("total_cost_usd") or 0.0)}

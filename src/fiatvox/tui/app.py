@@ -126,7 +126,9 @@ class FiatVox(App):
     #actions Button { width: 18; margin: 0 2; }
     #cmd { border: tall $accent 30%; background: #000000; }
     #cmd:focus { border: tall $accent; }
-    #status { height: 1; padding: 0 1; color: $text-muted; }
+    #footer { height: 1; background: #000000; }
+    #status { height: 1; width: 1fr; padding: 0 1; color: $text-muted; }
+    #tokens { height: 1; width: auto; padding: 0 1; color: $text-muted; }
     """
     BINDINGS = [
         Binding("ctrl+q", "quit_app", "Quit", show=False),
@@ -140,6 +142,8 @@ class FiatVox(App):
         self.queue.save()
         self.runner = Runner(self.queue, self._event)
         self.tele: dict = {}
+        self.runs: dict = {}          # AI use per worker run in this session: {run key: usage snapshot}
+        self.run_key: dict = {}       # book id -> its current run key
 
     # ------------------------------------------------------------------ layout
     def compose(self) -> ComposeResult:
@@ -187,7 +191,9 @@ class FiatVox(App):
                 yield Static("", id="detail")
         yield Input(placeholder="Type / for a command, or drag a book here", id="cmd",
                     suggester=SuggestFromList([c for c, _ in COMMANDS] + ["/up", "/down"], case_sensitive=False))
-        yield Static("", id="status")
+        with Horizontal(id="footer"):
+            yield Static("", id="status")
+            yield Static("", id="tokens")
 
     @staticmethod
     def _commands_text():
@@ -276,6 +282,31 @@ class FiatVox(App):
         status = (f"Working on {cur.name}: {cur.message}" if cur else
                   "Ready. Type /start to run the queue." if self.queue.next_waiting() else "Ready.")
         self.main("#status", Static).update(status[:200])
+        self.main("#tokens", Static).update(self._counter())
+
+    # ------------------------------------------------------------------ the token counter
+    def _counter(self) -> str:
+        """AI use since Fiat Vox opened, summed over every book's runs, in Feynman's notation."""
+        from ..ai import get_backend
+        from ..ai.base import counter_text
+        total = {"calls": 0, "input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "cost": 0.0}
+        billing = ""
+        for snap in self.runs.values():
+            for k in total:
+                total[k] += snap.get(k, 0)
+            billing = snap.get("billing") or billing
+        if not billing and self.st.ai_provider != "none":
+            billing = get_backend(self.st.ai_provider, self.st.ai_model).usage.billing
+        total["billing"] = billing
+        return "AI off" if self.st.ai_provider == "none" and not total["calls"] else counter_text(total)
+
+    def _usage_event(self, item: q.Item, ev: dict) -> None:
+        typ = ev.get("type")
+        if typ == "status" and item.status == q.PREPARING:
+            self.run_key[item.id] = f"{item.id}:{len(self.runs)}:{time.monotonic()}"
+        elif typ == "usage":
+            key = self.run_key.setdefault(item.id, f"{item.id}:0")
+            self.runs[key] = {k: v for k, v in ev.items() if k != "type"}
 
     # ------------------------------------------------------------------ the Now tab
     def _begin(self, item: q.Item) -> None:
@@ -428,6 +459,7 @@ class FiatVox(App):
     # ------------------------------------------------------------------ runner events
     def _event(self, item: q.Item, ev: dict) -> None:
         def ui():
+            self._usage_event(item, ev)
             self._tele_event(item, ev)
             self.refresh_queue()
             t = ev.get("type")

@@ -13,21 +13,64 @@ class AIError(RuntimeError):
 
 @dataclass
 class Usage:
+    """Tokens and cost across one run's AI requests, in the terms Pi and Feynman show: new input, output, cache
+    reads and cache writes. `cost` is in dollars as the provider reports it; on a subscription it is the
+    equivalent API price, covered by the plan."""
     calls: int = 0
-    input_tokens: int = 0
+    input_tokens: int = 0          # new input, not served from the cache
     output_tokens: int = 0
-    cost: float = 0.0          # in dollars, when the provider reports it
+    cache_read: int = 0
+    cache_write: int = 0
+    cost: float = 0.0
+    billing: str = ""              # "sub" (a subscription plan) or "api" (paid per token)
     by_purpose: dict = field(default_factory=dict)
+    on_change: object = field(default=None, repr=False, compare=False)
 
-    def add(self, purpose: str, inp: int = 0, out: int = 0, cost: float = 0.0):
-        self.calls += 1
-        self.input_tokens += inp
-        self.output_tokens += out
-        self.cost += cost
-        p = self.by_purpose.setdefault(purpose, [0, 0, 0])
-        p[0] += 1
-        p[1] += inp
-        p[2] += out
+    def __post_init__(self):
+        import threading
+        self._lock = threading.Lock()
+
+    def add(self, purpose: str, inp: int = 0, out: int = 0, cost: float = 0.0, cache_read: int = 0,
+            cache_write: int = 0):
+        with self._lock:
+            self.calls += 1
+            self.input_tokens += inp
+            self.output_tokens += out
+            self.cache_read += cache_read
+            self.cache_write += cache_write
+            self.cost += cost
+            p = self.by_purpose.setdefault(purpose, [0, 0, 0])
+            p[0] += 1
+            p[1] += inp
+            p[2] += out
+            snap = self.snapshot()
+        if callable(self.on_change):
+            self.on_change(snap)
+
+    def snapshot(self) -> dict:
+        return {"calls": self.calls, "input": self.input_tokens, "output": self.output_tokens,
+                "cache_read": self.cache_read, "cache_write": self.cache_write, "cost": round(self.cost, 6),
+                "billing": self.billing}
+
+
+def short(n: float) -> str:
+    """29000 -> 29k, 3500000 -> 3.5M, as Feynman shows token counts."""
+    n = float(n)
+    if n >= 1e6:
+        return f"{n / 1e6:.1f}M"
+    if n >= 1e3:
+        return f"{n / 1e3:.0f}k" if n >= 1e4 else f"{n / 1e3:.1f}k"
+    return f"{int(n)}"
+
+
+def counter_text(u: dict) -> str:
+    """The token counter line: ↑ new input, ↓ output, R cache reads, W cache writes, CH cache hits, cost."""
+    seen = u.get("input", 0) + u.get("cache_read", 0)
+    hit = int(1000 * u.get("cache_read", 0) / seen) / 10 if seen else 0.0  # rounded down, as Feynman shows it
+    bill = f" ({u['billing']})" if u.get("billing") else ""
+    return (f"\u2191{short(u.get('input', 0))} \u2193{short(u.get('output', 0))} R{short(u.get('cache_read', 0))} "
+            f"W{short(u.get('cache_write', 0))} CH{hit:.1f}% ${u.get('cost', 0):.3f}{bill}  "
+            f"{u.get('calls', 0)} AI request{'s' if u.get('calls', 0) != 1 else ''}")
 
 
 class Backend(Protocol):

@@ -62,7 +62,7 @@ class PiBackend:
 
     def __init__(self, model: str = ""):
         self.model = model  # "provider/model-id"; empty uses Pi's default
-        self.usage = Usage()
+        self.usage = Usage(billing=billing_of(model))
         self.label = f"Pi ({model})" if model else "Pi"
 
     def available(self) -> tuple[bool, str]:
@@ -98,7 +98,8 @@ class PiBackend:
         text, usage, error = parse_jsonl(r.stdout)
         if r.returncode != 0 or error:
             raise AIError(error or (r.stderr or r.stdout).strip()[-400:] or f"Pi exited with {r.returncode}")
-        self.usage.add(purpose, usage.get("input", 0), usage.get("output", 0), usage.get("cost", 0.0))
+        self.usage.add(purpose, usage.get("input", 0), usage.get("output", 0), usage.get("cost", 0.0),
+                       usage.get("cache_read", 0), usage.get("cache_write", 0))
         return text
 
 
@@ -125,6 +126,7 @@ def parse_jsonl(stdout: str) -> tuple[str, dict, str]:
                 cost = u.get("cost")
                 usage = {"input": int(u.get("input") or u.get("inputTokens") or 0),
                          "output": int(u.get("output") or u.get("outputTokens") or 0),
+                         "cache_read": int(u.get("cacheRead") or 0), "cache_write": int(u.get("cacheWrite") or 0),
                          "cost": float(cost.get("total", 0) if isinstance(cost, dict) else cost or 0)}
                 if msg.get("stopReason") == "error" or msg.get("errorMessage"):
                     error = msg.get("errorMessage") or "the model returned an error"
@@ -221,3 +223,13 @@ def login(provider: str, method: str, on_event: Callable[[dict], str | None]) ->
 def logout(provider: str) -> None:
     p = _bridge("logout", provider)
     p.communicate(timeout=60)
+
+
+def billing_of(model: str) -> str:
+    """"sub" when Pi is signed in to this provider with a subscription (OAuth), "api" for a key."""
+    provider = model.split("/", 1)[0] if "/" in model else ""
+    try:
+        auth = json.loads((agent_dir() / "auth.json").read_text(encoding="utf-8"))
+        return "sub" if (auth.get(provider) or {}).get("type") == "oauth" else "api"
+    except (OSError, ValueError):
+        return ""

@@ -115,7 +115,8 @@ def test_pi_jsonl_final_message():
                                                  "usage": {"input": 120, "output": 8, "cost": {"total": 0.001}}}},
              {"type": "agent_end"}]
     text, usage, err = parse_jsonl("\n".join(json.dumps(x) for x in lines) + "\n")
-    assert text == '{"a": 1}' and usage == {"input": 120, "output": 8, "cost": 0.001} and not err
+    assert text == '{"a": 1}' and usage == {"input": 120, "output": 8, "cache_read": 0, "cache_write": 0, "cost": 0.001}
+    assert not err
 
 
 def test_ocr_fix_everything_sends_unflagged_paragraphs(tmp_path):
@@ -124,3 +125,23 @@ def test_ocr_fix_everything_sends_unflagged_paragraphs(tmp_path):
     _, info = ocrfix.correct(book, m, tmp_path, everything=True)
     assert info["selected"] == 2 and info["sent"] == 2 and info["everything"]
     assert "Another clean one." in m.prompts[0]
+
+
+def test_usage_counter_and_claude_code_parsing():
+    from fiatvox.ai.base import Usage, counter_text
+    from fiatvox.ai.claude_code import usage_of
+    d = {"usage": {"input_tokens": 32, "output_tokens": 29000, "cache_read_input_tokens": 3500000,
+                   "cache_creation_input_tokens": 214000}, "total_cost_usd": 3.797}
+    seen = []
+    u = Usage(billing="sub")
+    u.on_change = seen.append
+    u.add("decisions", **usage_of(d))
+    assert counter_text(u.snapshot()) == "↑32 ↓29k R3.5M W214k CH99.9% $3.797 (sub)  1 AI request"
+    assert seen and seen[-1]["cache_read"] == 3500000
+
+
+def test_pi_usage_includes_cache():
+    lines = [{"type": "message_end", "message": {"role": "assistant", "content": [{"type": "text", "text": "{}"}],
+              "usage": {"input": 10, "output": 5, "cacheRead": 900, "cacheWrite": 40, "cost": {"total": 0.01}}}}]
+    _, usage, _ = parse_jsonl("\n".join(json.dumps(x) for x in lines))
+    assert usage["cache_read"] == 900 and usage["cache_write"] == 40

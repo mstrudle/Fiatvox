@@ -33,7 +33,7 @@ class DirectBackend:
         self.provider = provider
         self.model = model or PROVIDERS[provider]["default_model"]
         self.label = f"{PROVIDERS[provider]['label']} ({self.model})"
-        self.usage = Usage()
+        self.usage = Usage(billing="api")
 
     def available(self) -> tuple[bool, str]:
         if not keys.get(self.provider):
@@ -45,13 +45,13 @@ class DirectBackend:
         if not key:
             raise AIError(self.available()[1])
         try:
-            text, inp, out = getattr(self, "_" + self.provider)(key, prompt, timeout)
+            text, inp, out, *cache = getattr(self, "_" + self.provider)(key, prompt, timeout)
         except httpx.HTTPStatusError as e:
             raise AIError(f"{PROVIDERS[self.provider]['label']}: HTTP {e.response.status_code}: "
                           f"{e.response.text[:300]}") from e
         except httpx.HTTPError as e:
             raise AIError(f"{PROVIDERS[self.provider]['label']}: {e}") from e
-        self.usage.add(purpose, inp, out)
+        self.usage.add(purpose, inp, out, 0.0, *(cache or [0, 0]))
         return text
 
     def _anthropic(self, key, prompt, timeout):
@@ -74,7 +74,8 @@ class DirectBackend:
         if r.stop_reason == "refusal":
             raise AIError("Anthropic API: the model declined this request.")
         text = "".join(b.text for b in r.content if b.type == "text")
-        return text, r.usage.input_tokens, r.usage.output_tokens
+        return (text, r.usage.input_tokens, r.usage.output_tokens, r.usage.cache_read_input_tokens or 0,
+                r.usage.cache_creation_input_tokens or 0)
 
     def _chat(self, url, key, prompt, timeout, extra_headers=None):
         r = httpx.post(url, timeout=timeout, headers={"Authorization": f"Bearer {key}", **(extra_headers or {})},
