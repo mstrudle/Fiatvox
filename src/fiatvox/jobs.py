@@ -152,6 +152,7 @@ def run(job: Job, emit: Emit, cancelled: Callable[[], bool] = lambda: False) -> 
     for w in qc["warnings"]:
         log(f"Warning: {w}")
     emit({"type": "prepared", "title": book.title, "author": book.author, "chapters": len(book.sections),
+          "voice": voice, "out_dir": str(out_dir), "ai": backend.label,
           "words": book.words, "seconds": round(time.monotonic() - t0), "work": str(work),
           "titles": [s.title for s in book.sections]})
     if job.prepare_only:
@@ -164,7 +165,10 @@ def run(job: Job, emit: Emit, cancelled: Callable[[], bool] = lambda: False) -> 
         if ev.get("stage") == "assembling":
             emit({"type": "assembling", "done": ev.get("done"), "total": ev.get("total")})
             return
-        emit({"type": "narrating", **{k: ev[k] for k in ("chapter", "chapters", "title", "done", "total", "eta")}})
+        if ev.get("event") == "chapter_done":
+            emit({"type": "chapter_done", **{k: v for k, v in ev.items() if k != "event"}})
+            return
+        emit({"type": "narrating", **{k: v for k, v in ev.items() if k != "event"}})
 
     # the review stop: narrate one chapter on its own and pause
     if job.review_stop:

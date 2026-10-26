@@ -90,7 +90,8 @@ async def test_review_stop_actions(env):
         assert item.voice == "bm_lewis" and item.status == q.WAITING and not item.reviewed
         assert item.job().review_stop  # the first chapter is checked again in the new voice
         item.status = q.REVIEW
-        await run_cmd(app, pilot, "")          # Return on an empty command line opens the selected book
+        await run_cmd(app, pilot, "/queue")
+        await run_cmd(app, pilot, "")          # on the Queue tab, Return on an empty line opens the selected book
         app.screen.query_one("#continue").press()
         await pilot.pause()
         assert item.reviewed and not item.job().review_stop and item.status == q.WAITING
@@ -212,3 +213,37 @@ def test_commands_and_paths_are_told_apart():
     assert is_command("/add") and is_command("/new ") and is_command("/add ~/Books/x.epub") and is_command("/?")
     assert not is_command("/Users/me/Books/On War.epub") and not is_command("/Volumes/x/y.pdf")
     assert not is_command("~/Books/x.epub")
+
+
+async def test_now_tab_shows_the_current_book(env):
+    """A book starting switches to the Now tab; telemetry, the log and the chapter table follow its events."""
+    tmp, _ = env
+    from textual.widgets import DataTable, TabbedContent
+    from fiatvox import bookqueue as q
+    from fiatvox.tui.app import FiatVox
+    qu = q.Queue()
+    it = qu.add(str(tmp / "War.epub"), "bm_george", str(tmp))
+    qu.save()
+    app = FiatVox()
+    async with app.run_test(size=(140, 45)) as pilot:
+        item = app.queue.items[0]
+        item.status = q.PREPARING
+        events = [{"type": "status"},
+                  {"type": "stage", "stage": "Deciding", "frac": 0.0, "msg": "Asking the AI where chapters start"},
+                  {"type": "stage", "stage": "OCR", "frac": 0.5, "msg": "OCR page 3 of 6"},
+                  {"type": "prepared", "title": "On War", "author": "Clausewitz", "chapters": 2, "words": 900,
+                   "voice": "bm_george", "out_dir": str(tmp), "ai": "Claude Code (sonnet)", "seconds": 3},
+                  {"type": "narrating", "chapter": 1, "chapters": 2, "title": "Book One", "unit": 3, "units": 10,
+                   "done": 300, "total": 1000, "eta": 70, "speed": 12.0},
+                  {"type": "chapter_done", "chapter": 1, "chapters": 2, "title": "Book One", "duration": 95.0,
+                   "from_cache": False}]
+        for ev in events:
+            app._tele_event(item, ev)
+        await pilot.pause()
+        assert app.main("#tabs", TabbedContent).active == "now"
+        assert "On War" in str(app.main("#now_head").render()) and "Clausewitz" in str(app.main("#now_head").render())
+        assert "(1/2 chapters)" in str(app.main("#overall_txt").render())
+        assert "12x real time" in str(app.main("#overall_txt").render())
+        assert app.main("#chapters", DataTable).row_count == 1
+        log = "\n".join(str(line) for line in app.main("#log").lines)
+        assert "Asking the AI where chapters start" in log and "OCR page" not in log

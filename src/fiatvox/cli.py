@@ -67,6 +67,10 @@ def cmd_make(a) -> int:
                 pct = 100 * ev["done"] / max(1, ev["total"])
                 say(f"Narrating chapter {ev['chapter']} of {ev['chapters']} ({pct:.0f}%), {_fmt_eta(ev['eta'])} left")
                 last["t"] = now
+        elif t == "chapter_done":
+            m = int(ev["duration"] // 60)
+            say(f"Chapter {ev['chapter']} of {ev['chapters']} ready: {ev['title'][:60]} ({m} min"
+                + (", from cache)" if ev.get("from_cache") else ")"))
         elif t == "assembling" and ev.get("done") is None:
             say("Assembling the audiobook")
         elif t == "done":
@@ -99,6 +103,22 @@ def cmd_worker(a) -> int:
     signal.signal(signal.SIGTERM, on_signal)
     signal.signal(signal.SIGINT, on_signal)
     keep_awake()
+
+    # if the app goes away without stopping us (its Terminal window closed, a crash), stop too
+    parent = int(os.environ.get("FIATVOX_PARENT") or 0)
+    if parent:
+        import threading
+
+        def watch():
+            while True:
+                time.sleep(2)
+                try:
+                    os.kill(parent, 0)
+                except OSError:
+                    stop["flag"] = True
+                    time.sleep(10)
+                    os._exit(130)  # still busy (an AI request): leave anyway; the cache keeps finished work
+        threading.Thread(target=watch, daemon=True).start()
 
     def emit(ev: dict) -> None:
         sys.stdout.write(json.dumps(ev, ensure_ascii=False) + "\n")

@@ -6,10 +6,12 @@ everything narrated so far; the book resumes from the cache when started again.
 from __future__ import annotations
 
 import json
+import os
 import signal
 import subprocess
 import sys
 import threading
+import time
 from collections.abc import Callable
 
 from . import paths
@@ -51,10 +53,32 @@ class Runner:
             if self.proc and self.proc.poll() is None:
                 self.proc.send_signal(signal.SIGTERM)
 
-    def stop(self) -> None:
-        """Stop after cancelling the current book (used when the app closes)."""
+    def stop(self, timeout: float = 4.0) -> str | None:
+        """End all work now (when the app closes): ask the worker to stop, and if it is still busy after `timeout`
+        seconds (in an AI request, say), end it and everything it started. Returns the book that was stopped.
+        Nothing is lost: finished clips are in the cache and the book resumes from there next time."""
         self.stopping = True
-        self.cancel_current()
+        name = self.current.name if self.current else None
+        with self.lock:
+            proc = self.proc
+        if not proc or proc.poll() is not None:
+            return name
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except OSError:
+            pass
+        deadline = time.monotonic() + timeout
+        while proc.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.1)
+        if proc.poll() is None:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)  # the worker, its AI request, ffmpeg and caffeinate
+            except OSError:
+                pass
+        if self.current and self.current.status in q.ACTIVE:
+            self.current.status, self.current.message = q.WAITING, "Stopped when Fiat Vox quit; resumes from here"
+            self.queue.save()
+        return name
 
     def _loop(self) -> None:
         while not self.stopping:
@@ -71,8 +95,10 @@ class Runner:
         job_path = paths.ensure(paths.data_dir() / "jobs") / f"{item.id}.json"
         job_path.write_text(json.dumps(item.job().to_json()), encoding="utf-8")
         with self.lock:
+            # its own process group, so quitting can end it and everything it started in one step
             self.proc = subprocess.Popen(worker_command(str(job_path)), stdout=subprocess.PIPE,
-                                         stderr=subprocess.PIPE, text=True, bufsize=1)
+                                         stderr=subprocess.PIPE, text=True, bufsize=1, start_new_session=True,
+                                         env=dict(os.environ, FIATVOX_PARENT=str(os.getpid())))
         errlog = (paths.logs_dir() / f"{item.id}.stderr.log").open("w", encoding="utf-8")
         threading.Thread(target=lambda: [errlog.write(line) for line in self.proc.stderr], daemon=True).start()
         for line in self.proc.stdout:
@@ -85,8 +111,10 @@ class Runner:
             self.listener(item, ev)
         code = self.proc.wait()
         errlog.close()
+        if self.stopping:
+            return
         if item.status in q.ACTIVE:  # the worker ended without a final event
-            if code == 130 or self.stopping:
+            if code == 130:
                 item.status, item.message = q.CANCELLED, "Stopped; narration so far is kept"
             else:
                 item.status = q.FAILED

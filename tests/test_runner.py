@@ -50,3 +50,28 @@ def test_review_stop_then_continue(env):
     assert Path(item.file).exists() and item.progress == 1.0
     saved = json.loads(q.Queue.path().read_text())
     assert saved["items"][0]["status"] == "done"
+
+
+def test_quit_ends_a_busy_worker_quickly(env, monkeypatch):
+    """A worker that ignores the stop request (stuck in an AI call) is ended, and its book waits to resume."""
+    import sys
+    import time
+    from fiatvox import bookqueue as q
+    from fiatvox import runner as rmod
+    stubborn = ("import signal, time, json; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                "print(json.dumps({'type': 'stage', 'stage': 'Deciding', 'frac': 0, 'msg': 'asking'}), flush=True); "
+                "time.sleep(120)")
+    monkeypatch.setattr(rmod, "worker_command", lambda job: [sys.executable, "-c", stubborn])
+    qu = q.Queue()
+    item = qu.add(str(env / "x.epub"), "bm_george", str(env / "out"))
+    r = rmod.Runner(qu, lambda it, ev: None)
+    r.start()
+    for _ in range(100):
+        if r.proc and item.status == q.PREPARING and item.message.startswith("Deciding"):
+            break
+        time.sleep(0.05)
+    proc = r.proc
+    t0 = time.monotonic()
+    assert r.stop(timeout=1.0) == item.name
+    assert time.monotonic() - t0 < 3 and proc.poll() is not None
+    assert q.Queue.load().items[0].status == q.WAITING

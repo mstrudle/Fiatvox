@@ -77,25 +77,42 @@ def unit_audio(u: Unit, k: str, voice: str):
 
 def render(p: Plan, progress: Callable[[dict], None] | None = None,
            cancelled: Callable[[], bool] = lambda: False) -> dict:
-    """Make sure every unit is in the cache. Reports chars done and a speed estimate for time remaining."""
+    """Make sure every unit is in the cache, reporting telemetry as it goes:
+      {"event": "unit", chapter, chapters, title, unit, units, done, total, eta, audio_seconds, elapsed, speed}
+      {"event": "chapter_done", chapter, chapters, title, duration, from_cache}
+    `done`/`total` are characters; `speed` is seconds of audio made per second of work."""
     total = p.chars()
     done = p.chars() - p.chars(only_missing=True)
-    t0, synth_chars = time.monotonic(), 0
+    t0, synth_chars, made = time.monotonic(), 0, 0.0
     for ci, (ch, ks) in enumerate(zip(p.chapters, p.keys)):
-        for u, k in zip(ch.units, ks):
+        ch_seconds, synthesised = 0.0, False
+        for ui, (u, k) in enumerate(zip(ch.units, ks)):
+            pause = u.pause_before + u.pause_after
             if cache.has(k):
-                continue
+                f = cache.frames(k)
+                if f is not None:
+                    ch_seconds += f / SAMPLE_RATE + pause
+                    continue
             if cancelled():
                 raise Cancelled()
             a = engine().synth(u.text, p.voice)
             cache.put(k, a)
+            synthesised = True
+            secs = len(a) / SAMPLE_RATE
+            ch_seconds += secs + pause
+            made += secs
             done += len(u.text)
             synth_chars += len(u.text)
             if progress:
-                rate = synth_chars / max(1e-6, time.monotonic() - t0)
-                progress({"chapter": ci + 1, "chapters": len(p.chapters), "title": ch.title, "done": done,
-                          "total": total, "eta": (total - done) / rate if rate else None,
-                          "audio_seconds": len(a) / SAMPLE_RATE})
+                elapsed = time.monotonic() - t0
+                rate = synth_chars / max(1e-6, elapsed)
+                progress({"event": "unit", "chapter": ci + 1, "chapters": len(p.chapters), "title": ch.title,
+                          "unit": ui + 1, "units": len(ch.units), "done": done, "total": total,
+                          "eta": (total - done) / rate if rate else None, "audio_seconds": made,
+                          "elapsed": elapsed, "speed": made / max(1e-6, elapsed)})
+        if progress:
+            progress({"event": "chapter_done", "chapter": ci + 1, "chapters": len(p.chapters), "title": ch.title,
+                      "duration": ch_seconds, "from_cache": not synthesised})
     return {"chars": total, "synthesised_chars": synth_chars, "seconds": time.monotonic() - t0}
 
 

@@ -1,13 +1,15 @@
-"""Fiat Vox's terminal app: the queue, progress, and every action one command away."""
+"""Fiat Vox's terminal app: Home (the name and commands), Now (what is happening to the current book), Queue."""
 from __future__ import annotations
 
+import re
+import time
 from pathlib import Path
 
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.widgets import DataTable, Input, Label, ProgressBar, Static
+from textual.widgets import DataTable, Input, Label, ProgressBar, RichLog, Static, TabbedContent, TabPane
 
 from .. import __version__
 from .. import bookqueue as q
@@ -23,6 +25,13 @@ def fmt_eta(sec) -> str:
     return f"{sec // 3600}h {sec % 3600 // 60:02d}m" if sec >= 3600 else f"{sec // 60}m {sec % 60:02d}s"
 
 
+def hms(sec) -> str:
+    if sec is None:
+        return "--:--:--"
+    sec = int(sec)
+    return f"{sec // 3600}:{sec % 3600 // 60:02d}:{sec % 60:02d}"
+
+
 FONT = {  # 5 rows high; "#" is a filled pixel
     "F": ["#####", "#    ", "#### ", "#    ", "#    "],
     "I": ["###", " # ", " # ", " # ", "###"],
@@ -36,7 +45,7 @@ FONT = {  # 5 rows high; "#" is a filled pixel
 
 
 def banner(text: str = "FIAT VOX", wide: bool = True) -> str:
-    """The name in block letters, like Feynman's: each pixel two characters wide when there is room."""
+    """The name in block letters: each pixel two characters wide when there is room."""
     cell = "\u2588\u2588" if wide else "\u2588"
     blank = "  " if wide else " "
     rows = []
@@ -45,22 +54,28 @@ def banner(text: str = "FIAT VOX", wide: bool = True) -> str:
     return "\n".join(rows)
 
 
+# Textual's own dark theme colours (orange accent, blue buttons), on black
+ACCENT, MUTED = "#ffa62b", "#8a8a8a"
+
 COMMANDS = [
     ("/add", "add books (or drag them here)"),
     ("/start", "start or resume the queue"),
     ("/cancel", "stop the current book"),
     ("/review", "check a paused first chapter"),
-    ("/open", "show an audiobook in Finder"),
-    ("/remove", "take a book off the list"),
+    ("/now", "what is happening now"),
+    ("/queue", "the list of books"),
+    ("/home", "this screen"),
     ("/new", "clear finished books"),
     ("/voices", "hear and choose voices"),
     ("/pronounce", "fix how a word is said"),
     ("/settings", "AI, pauses, folders"),
     ("/errors", "reports of failures"),
+    ("/open", "show an audiobook in Finder"),
+    ("/remove", "take a book off the list"),
     ("/help", "all commands and keys"),
     ("/quit", "quit; work resumes later"),
 ]
-COMMAND_RE = __import__("re").compile(r"^/[A-Za-z?]+(?:\s|$)")  # "/add", "/new"; a path like "/Users/..." is not one
+COMMAND_RE = re.compile(r"^/[A-Za-z?]+(?:\s|$)")  # "/add", "/new"; a path like "/Users/..." is not one
 
 
 def is_command(text: str) -> bool:
@@ -69,7 +84,8 @@ def is_command(text: str) -> bool:
 
 ALIASES = {"/a": "/add", "/s": "/start", "/c": "/cancel", "/r": "/review", "/v": "/voices", "/p": "/pronounce",
            "/t": "/settings", "/e": "/errors", "/q": "/quit", "/exit": "/quit", "/h": "/help", "/?": "/help",
-           "/up": "/up", "/down": "/down", "/clear": "/new"}
+           "/clear": "/new", "/n": "/now", "/list": "/queue"}
+QUIET_STAGES = ("OCR page", "AI request")  # progress counters: shown in the telemetry, not each in the log
 
 
 class FiatVox(App):
@@ -77,21 +93,37 @@ class FiatVox(App):
     SUB_TITLE = ""
     CSS = """
     Screen { background: #000000; }
-    #banner { color: #9fbf6f; content-align: center middle; width: 100%; height: auto; margin-top: 1; }
-    #box { border: round #5a6a4a; border-title-align: center; border-title-color: #9fbf6f; height: auto;
+    TabbedContent, TabPane, ContentSwitcher { background: #000000; }
+    #tabs { height: 1fr; }
+    #tabs > ContentSwitcher { height: 1fr; }
+    TabPane { height: 1fr; padding: 0; }
+    #banner { color: $accent; content-align: center middle; width: 100%; height: auto; margin-top: 1; }
+    #box { border: round $accent 60%; border-title-align: center; border-title-color: $accent; height: auto;
            margin: 0 2; padding: 0 1; }
-    #info { width: 46; height: auto; padding-right: 2; border-right: solid #3a4530; }
+    #info { width: 46; height: auto; padding-right: 2; border-right: solid $accent 30%; }
     #cmds { width: 1fr; height: auto; padding-left: 2; }
     #info, #cmds Static { height: auto; }
+    #home_hint { margin: 1 4; color: $text-muted; }
+    .panel { border: round $accent 60%; border-title-color: $accent; border-title-align: center;
+             height: auto; padding: 0 1; margin: 0 1; }
+    #now_head { height: auto; }
+    #telemetry Horizontal { height: 1; }
+    #telemetry Label { width: 10; }
+    #telemetry ProgressBar { width: 40; }
+    #telemetry .txt { width: 1fr; height: 1; }
+    #lower { height: 1fr; }
+    #log { width: 1fr; height: 1fr; border: round $accent 40%; border-title-color: $accent; background: #000000;
+           margin: 0 0 0 1; }
+    #chapters { width: 62; height: 1fr; border: round $accent 40%; border-title-color: $accent;
+                background: #000000; margin: 0 1 0 1; }
     #empty { margin: 1 4; color: $text-muted; }
     #queue { height: 1fr; min-height: 4; background: #000000; margin: 1 0 0 0; overflow-x: hidden; }
-    #detail { height: auto; max-height: 8; border-top: solid #5a6a4a; padding: 0 1; }
-    #bars { height: auto; padding: 0 1; }
-    #bars Horizontal { height: 1; }
-    #bars Label { width: 11; }
-    #bars ProgressBar { width: 1fr; }
-    #cmd { margin: 0 0; border: tall #3a4530; background: #000000; }
-    #cmd:focus { border: tall #9fbf6f; }
+    #detail { height: auto; max-height: 8; border-top: solid $accent 50%; padding: 0 1; }
+    #qbars { height: 1; padding: 0 1; }
+    #qbars Label { width: 11; }
+    #qbars ProgressBar { width: 1fr; }
+    #cmd { border: tall $accent 30%; background: #000000; }
+    #cmd:focus { border: tall $accent; }
     #status { height: 1; padding: 0 1; color: $text-muted; }
     """
     BINDINGS = [
@@ -105,31 +137,47 @@ class FiatVox(App):
         self.queue = q.Queue.load()
         self.queue.save()
         self.runner = Runner(self.queue, self._event)
+        self.tele: dict = {}
 
     # ------------------------------------------------------------------ layout
     def compose(self) -> ComposeResult:
         from textual.suggester import SuggestFromList
-        from textual.widgets import Input
-        yield Static(banner(), id="banner")
-        with Horizontal(id="box"):
-            yield Static("", id="info")
-            with Vertical(id="cmds"):
-                yield Static("[b #9fbf6f]Commands[/]")
-                yield Static(self._commands_text())
-        yield Static("No books yet. Type /add, or drag a book from Finder onto this window.", id="empty")
-        t = DataTable(id="queue", cursor_type="row", zebra_stripes=False)
-        t.add_columns("Book", "Voice", "Review", "Status", "Progress", "Time left")
-        yield t
-        with Vertical(id="bars"):
-            with Horizontal():
-                yield Label("This book")
-                yield ProgressBar(total=100, show_eta=False, id="book_bar")
-            with Horizontal():
-                yield Label("All books")
-                yield ProgressBar(total=100, show_eta=False, id="all_bar")
-        yield Static("", id="detail")
-        yield Input(placeholder="Type / for a command, or drag a book here. Up and down choose a book; "
-                    "Return opens it.", id="cmd",
+        with TabbedContent(initial="home", id="tabs"):
+            with TabPane("Home", id="home"):
+                yield Static(banner(), id="banner")
+                with Horizontal(id="box"):
+                    yield Static("", id="info")
+                    with Vertical(id="cmds"):
+                        yield Static(f"[b {ACCENT}]Commands[/]")
+                        yield Static(self._commands_text())
+                yield Static("Type a command below, or drag books from Finder onto this window.", id="home_hint")
+            with TabPane("Now", id="now"):
+                yield Static("Nothing is being worked on. Type /add to add books, or /start to run the queue.",
+                             id="now_head", classes="panel")
+                with Vertical(id="telemetry", classes="panel"):
+                    with Horizontal():
+                        yield Label("Overall")
+                        yield ProgressBar(total=100, show_eta=False, show_percentage=False, id="overall_bar")
+                        yield Static("", id="overall_txt", classes="txt")
+                    with Horizontal():
+                        yield Label("Chapter")
+                        yield ProgressBar(total=100, show_eta=False, show_percentage=False, id="chapter_bar")
+                        yield Static("", id="chapter_txt", classes="txt")
+                with Horizontal(id="lower"):
+                    yield RichLog(id="log", wrap=True, markup=True, max_lines=2000)
+                    t = DataTable(id="chapters", cursor_type="none", zebra_stripes=False)
+                    t.add_columns("Ch", "Title", "Length", "Status")
+                    yield t
+            with TabPane("Queue", id="queue_tab"):
+                yield Static("No books yet. Type /add, or drag a book from Finder onto this window.", id="empty")
+                t = DataTable(id="queue", cursor_type="row", zebra_stripes=False)
+                t.add_columns("Book", "Voice", "Review", "Status", "Progress", "Time left")
+                yield t
+                with Horizontal(id="qbars"):
+                    yield Label("All books")
+                    yield ProgressBar(total=100, show_eta=False, id="all_bar")
+                yield Static("", id="detail")
+        yield Input(placeholder="Type / for a command, or drag a book here", id="cmd",
                     suggester=SuggestFromList([c for c, _ in COMMANDS] + ["/up", "/down"], case_sensitive=False))
         yield Static("", id="status")
 
@@ -139,7 +187,7 @@ class FiatVox(App):
         from rich.table import Table
         t = Table.grid(padding=(0, 2))
         for _ in range(2):
-            t.add_column(style="#9fbf6f", no_wrap=True, min_width=10)
+            t.add_column(style=ACCENT, no_wrap=True, min_width=10)
             t.add_column(no_wrap=True, overflow="ellipsis", ratio=1)
         half = (len(COMMANDS) + 1) // 2
         for i in range(half):
@@ -161,14 +209,14 @@ class FiatVox(App):
         rows = [("AI", b.label), ("voice", self.st.default_voice), ("save to", out), ("working on", now),
                 ("queue", f"{waiting} waiting, {review} to review, {done} done")]
         room = 31 if self.size.width >= 140 else 22
-        return "\n".join(f"[#8a8a8a]{k:<11}[/]{v[:room]}" for k, v in rows)
+        return "\n".join(f"[{MUTED}]{k:<11}[/]{v[:room]}" for k, v in rows)
 
     def on_resize(self) -> None:
         tall, wide = self.size.height >= 34, self.size.width >= 100
         self.main("#banner").display = tall
         self.main("#banner", Static).update(banner(wide=wide))
-        self.main("#box").display = self.size.height >= 26
         self.main("#info").styles.width = 46 if self.size.width >= 140 else 36
+        self.main("#chapters").styles.width = 62 if self.size.width >= 130 else 44
 
     def main(self, selector: str, kind=None):
         """A widget on the main screen, even while a dialog is open on top of it."""
@@ -177,6 +225,9 @@ class FiatVox(App):
 
     def on_mount(self) -> None:
         self.main("#box").border_title = f"Fiat Vox {__version__}"
+        self.main("#telemetry").border_title = "Synthesis telemetry"
+        self.main("#log").border_title = "Activity"
+        self.main("#chapters").border_title = "Completed chapters"
         self.main("#cmd").focus()
         self.refresh_queue()
         self.set_interval(1.0, self.refresh_queue)
@@ -185,6 +236,10 @@ class FiatVox(App):
 
     def _reload_settings(self) -> None:
         self.st = Settings.load()
+
+    def show_tab(self, tab: str) -> None:
+        self.main("#tabs", TabbedContent).active = tab
+        self.main("#cmd").focus()
 
     # ------------------------------------------------------------------ queue display
     def refresh_queue(self) -> None:
@@ -199,17 +254,134 @@ class FiatVox(App):
         t.display = bool(self.queue.items)
         if self.queue.items:
             t.move_cursor(row=min(keep, len(self.queue.items) - 1))
-        cur = self.runner.current
-        self.main("#book_bar", ProgressBar).update(progress=100 * (cur.progress if cur else 0))
         items = self.queue.items
         overall = sum((1.0 if i.status in (q.DONE, q.FAILED, q.CANCELLED) else i.progress) for i in items)
         self.main("#all_bar", ProgressBar).update(progress=100 * overall / max(1, len(items)))
         self._detail()
         self.main("#info", Static).update(self._info_text())
+        self._telemetry()
         cur = self.runner.current
-        status = (f"Narrating {cur.name}: {cur.message}" if cur else
+        status = (f"Working on {cur.name}: {cur.message}" if cur else
                   "Ready. Type /start to run the queue." if self.queue.next_waiting() else "Ready.")
         self.main("#status", Static).update(status[:200])
+
+    # ------------------------------------------------------------------ the Now tab
+    def _begin(self, item: q.Item) -> None:
+        """A new book has started: clear the Now tab and switch to it."""
+        self.tele = {"id": item.id, "name": item.name, "started": time.monotonic(), "chapters_done": 0}
+        self.main("#log", RichLog).clear()
+        self.main("#chapters", DataTable).clear()
+        self._log(f"[b]Starting {item.name}[/b]  ({Path(item.source).name})")
+        self._head(item)
+        if len(self.screen_stack) == 1:
+            self.show_tab("now")
+
+    def _log(self, text: str) -> None:
+        self.main("#log", RichLog).write(f"[{MUTED}]{time.strftime('%H:%M:%S')}[/]  {text}")
+
+    def _head(self, item: q.Item, ev: dict | None = None) -> None:
+        t = self.tele
+        if ev:
+            t.update({k: ev.get(k) for k in ("title", "author", "chapters", "words", "voice", "out_dir", "ai")})
+        title = t.get("title") or item.name
+        by = f" by {t['author']}" if t.get("author") else ""
+        lines = [f"[b {ACCENT}]{title}[/]{by}", f"[{MUTED}]From[/]   {item.source}"]
+        if t.get("out_dir"):
+            lines.append(f"[{MUTED}]To[/]     {t['out_dir']}")
+        facts = [f"voice {t.get('voice') or item.voice}"]
+        if t.get("ai"):
+            facts.append(f"AI {t['ai']}")
+        if t.get("chapters"):
+            facts.append(f"{t['chapters']} chapters, {t['words']:,} words")
+        lines.append(f"[{MUTED}]With[/]   " + "; ".join(facts))
+        self.main("#now_head", Static).update("\n".join(lines))
+
+    def _telemetry(self) -> None:
+        t = self.tele
+        if not t:
+            return
+        elapsed = time.monotonic() - t["started"] if self.runner.current else t.get("elapsed_final")
+        ob, cb = self.main("#overall_bar", ProgressBar), self.main("#chapter_bar", ProgressBar)
+        if t.get("phase") == "narrating":
+            pct = 100 * t["done"] / max(1, t["total"])
+            ob.update(progress=pct)
+            speed = f"   {t['speed']:.0f}x real time" if t.get("speed") else ""
+            self.main("#overall_txt", Static).update(
+                f"{pct:3.0f}%  ({t['chapters_done']}/{t['chapters_total']} chapters)   elapsed {hms(elapsed)}   "
+                f"left {hms(t.get('eta'))}{speed}")
+            cb.update(progress=100 * t["unit"] / max(1, t["units"]))
+            self.main("#chapter_txt", Static).update(
+                f"Ch {t['chapter']}: {t['ch_title'][:40]}   {t['unit']}/{t['units']} paragraphs")
+        elif t.get("phase") == "preparing":
+            ob.update(progress=100 * t.get("frac", 0))
+            self.main("#overall_txt", Static).update(f"Preparing: {t.get('stage', '')}   elapsed {hms(elapsed)}")
+            cb.update(progress=100 * t.get("frac", 0))
+            self.main("#chapter_txt", Static).update(t.get("msg", "")[:70])
+        elif t.get("phase") == "assembling":
+            ob.update(progress=100)
+            frac = t.get("asm", 0)
+            cb.update(progress=100 * frac)
+            self.main("#overall_txt", Static).update(f"Assembling the audiobook   elapsed {hms(elapsed)}")
+            self.main("#chapter_txt", Static).update(f"{100 * frac:3.0f}% written")
+        elif t.get("phase") == "finished":
+            ob.update(progress=100)
+            cb.update(progress=100)
+            self.main("#overall_txt", Static).update(f"Finished in {hms(elapsed)}")
+            self.main("#chapter_txt", Static).update("")
+
+    def _tele_event(self, item: q.Item, ev: dict) -> None:
+        t, typ = self.tele, ev.get("type")
+        if typ == "status" and item.status == q.PREPARING and t.get("id") != item.id:
+            self._begin(item)
+            return
+        if t.get("id") != item.id:
+            return
+        if typ == "stage":
+            msg = ev.get("msg", "")
+            t.update(phase="preparing", stage=ev.get("stage"), frac=float(ev.get("frac") or 0), msg=msg)
+            if not msg.startswith(QUIET_STAGES) and msg != t.get("last_logged"):
+                self._log(msg)
+                t["last_logged"] = msg
+        elif typ == "log":
+            self._log(ev.get("msg", ""))
+        elif typ == "prepared":
+            self._head(item, ev)
+            self._log(f"Prepared: {ev.get('chapters')} chapters, {ev.get('words', 0):,} words "
+                      f"in {ev.get('seconds', 0)}s")
+            t["chapters_total"] = ev.get("chapters")
+        elif typ == "narrating":
+            if t.get("phase") != "narrating":
+                self._log(f"Narrating with {item.voice}")
+            t.update(phase="narrating", done=ev["done"], total=ev["total"], eta=ev.get("eta"),
+                     speed=ev.get("speed"), chapter=ev["chapter"], chapters_total=ev["chapters"],
+                     ch_title=ev.get("title", ""), unit=ev.get("unit", 0), units=ev.get("units", 1))
+        elif typ == "chapter_done":
+            t["chapters_done"] = ev["chapter"]
+            t["chapters_total"] = ev["chapters"]
+            dur = ev.get("duration", 0)
+            length = f"{int(dur // 3600)}:{int(dur % 3600 // 60):02d}:{int(dur % 60):02d}"
+            self.main("#chapters", DataTable).add_row(str(ev["chapter"]), ev["title"][:34], length,
+                                                     "from cache" if ev.get("from_cache") else "done")
+            if not ev.get("from_cache"):
+                self._log(f"Chapter {ev['chapter']} of {ev['chapters']} ready: {ev['title'][:60]} ({length})")
+        elif typ == "assembling":
+            if t.get("phase") != "assembling":
+                self._log("Assembling the audiobook (AAC, chapters, cover)")
+            t["phase"] = "assembling"
+            if ev.get("total"):
+                t["asm"] = ev["done"] / max(1, ev["total"])
+        elif typ in ("done", "review", "error", "cancelled"):
+            t["elapsed_final"] = time.monotonic() - t["started"]
+            t["phase"] = "finished"
+            if typ == "done":
+                self._log(f"[b]Done[/b]: {ev.get('file', '')}" + ("  (added to Apple Books)" if ev.get("imported") else ""))
+            elif typ == "review":
+                self._log(f"[b]Paused for review[/b]: \"{ev.get('chapter')}\". Type /review to listen.")
+            elif typ == "error":
+                self._log(f"[b red]Failed[/b red]: {ev.get('msg', '')}")
+            else:
+                self._log("Stopped. Everything narrated so far is kept.")
+        self._telemetry()
 
     def selected(self) -> q.Item | None:
         t = self.main("#queue", DataTable)
@@ -244,6 +416,7 @@ class FiatVox(App):
     # ------------------------------------------------------------------ runner events
     def _event(self, item: q.Item, ev: dict) -> None:
         def ui():
+            self._tele_event(item, ev)
             self.refresh_queue()
             t = ev.get("type")
             if t == "review":
@@ -252,7 +425,7 @@ class FiatVox(App):
             elif t == "done":
                 self.notify(f"{item.name} is ready.", timeout=8)
             elif t == "error":
-                self.notify(f"{item.name} failed. See the details below.", severity="error", timeout=10)
+                self.notify(f"{item.name} failed. Details are on the Queue tab.", severity="error", timeout=10)
         self.call_from_thread(ui)
 
     # ------------------------------------------------------------------ command line
@@ -261,7 +434,8 @@ class FiatVox(App):
         text = ev.value.strip()
         ev.input.value = ""
         if not text:
-            self.action_open()
+            if self.main("#tabs", TabbedContent).active == "queue_tab":
+                self.action_open()
             return
         if not is_command(text):
             from .pickers import is_book, parse_paths
@@ -277,7 +451,9 @@ class FiatVox(App):
                    "/review": self.action_open, "/open": self.action_open, "/remove": self.action_remove,
                    "/new": self.action_new, "/voices": self.action_voices, "/pronounce": self.action_pronounce,
                    "/settings": self.action_settings, "/errors": self.action_errors, "/help": self.action_help,
-                   "/quit": self.action_quit_app, "/up": self.action_up, "/down": self.action_down}
+                   "/quit": self.action_quit_app, "/up": self.action_up, "/down": self.action_down,
+                   "/home": lambda: self.show_tab("home"), "/now": lambda: self.show_tab("now"),
+                   "/queue": lambda: self.show_tab("queue_tab")}
         if word in actions:
             actions[word]()
         else:
@@ -301,7 +477,7 @@ class FiatVox(App):
 
     def on_key(self, event) -> None:
         """Up and down choose a book even while the command line has the cursor."""
-        if len(self.screen_stack) > 1:
+        if len(self.screen_stack) > 1 or self.main("#tabs", TabbedContent).active != "queue_tab":
             return
         t = self.main("#queue", DataTable)
         if event.key == "up":
@@ -455,16 +631,9 @@ class FiatVox(App):
         self.push_screen(screens.ErrorsDialog())
 
     def action_quit_app(self) -> None:
-        if not self.runner.running:
-            self.exit()
-            return
-
-        def go(yes):
-            if yes:
-                self.runner.stop()
-                self.exit()
-        self.push_screen(screens.Confirm("A book is being worked on. Quit anyway? It stops now and resumes from "
-                                         "where it stopped the next time you start Fiat Vox.", "Quit", "Stay"), go)
+        """Quit at once and end all work, so nothing keeps running on the Mac. The book resumes next time."""
+        stopped = self.runner.stop()
+        self.exit(stopped)
 
     @on(DataTable.RowSelected, "#queue")
     def _row_selected(self) -> None:
@@ -472,5 +641,19 @@ class FiatVox(App):
 
 
 def run() -> int:
-    FiatVox().run()
+    import signal
+    app = FiatVox()
+
+    def closed(signum, frame):  # the Terminal window was closed: end all work, then leave
+        app.runner.stop()
+        raise SystemExit(0)
+    signal.signal(signal.SIGHUP, closed)
+    signal.signal(signal.SIGTERM, closed)
+    try:
+        stopped = app.run()
+    finally:
+        app.runner.stop()
+    if stopped:
+        print(f"Fiat Vox has quit. \"{stopped}\" stopped and resumes from where it stopped the next time you open "
+              "Fiat Vox.")
     return 0
