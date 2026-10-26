@@ -151,3 +151,19 @@ async def test_drop_while_the_choose_button_has_focus(env):
         app.screen.post_message(events.Paste(f"'{src}'"))
         await pilot.pause()
         assert app.screen.files == [str(src)]
+
+
+async def test_default_voice_marker_moves(env):
+    from fiatvox.settings import Settings
+    from fiatvox.tui.app import FiatVox
+    app = FiatVox()
+    async with app.run_test(size=(120, 50)) as pilot:
+        await pilot.press("v")
+        await pilot.pause()
+        ol = app.screen.query_one("#list")
+        ol.highlighted = ol.get_option_index("bm_lewis")
+        await pilot.press("d")
+        await pilot.pause()
+        assert "(default)" in str(ol.get_option("bm_lewis").prompt)
+        assert "(default)" not in str(ol.get_option("bm_george").prompt)
+    assert Settings.load().default_voice == "bm_lewis"

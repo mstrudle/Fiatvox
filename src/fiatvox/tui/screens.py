@@ -178,12 +178,8 @@ class Voices(Dialog):
             yield Label("Voices", classes="title")
             yield Label("Return plays a five-second sample. D makes the voice the default for new books."
                         + (" Choose one with the button below." if self.choose else ""), classes="hint")
-            opts = []
-            for accent in ("American", "British"):
-                for v, (acc, gender, grade) in VOICES.items():
-                    if acc == accent:
-                        star = "  (default)" if v == self.st.default_voice else ""
-                        opts.append(Option(f"{v:<12} {acc:<8} {gender:<6}  grade {grade:<3}{star}", id=v))
+            opts = [Option(self._label(v), id=v) for accent in ("American", "British")
+                    for v, (acc, _, _) in VOICES.items() if acc == accent]
             yield OptionList(*opts, id="list")
             yield Static("", id="msg")
             with Horizontal(classes="row"):
@@ -206,11 +202,21 @@ class Voices(Dialog):
     def _play(self, ev: OptionList.OptionSelected) -> None:
         self.play(ev.option.id)
 
+    def _label(self, v: str) -> str:
+        acc, gender, grade = VOICES[v]
+        star = "  (default)" if v == self.st.default_voice else ""
+        return f"{v:<12} {acc:<8} {gender:<6}  grade {grade:<3}{star}"
+
     def action_default(self) -> None:
         v = self._selected()
         if v:
+            old = self.st.default_voice
             self.st.default_voice = v
             self.st.save()
+            ol = self.query_one("#list", OptionList)
+            for name in {old, v}:
+                if name in VOICES:
+                    ol.replace_option_prompt(name, self._label(name))
             self.query_one("#msg", Static).update(f"{v} is now the default voice.")
 
     @on(Button.Pressed, "#use")
