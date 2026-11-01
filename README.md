@@ -93,6 +93,8 @@ Fiat Vox uses an AI model for judgment calls: which pages or sections to cut (co
 where chapters start and what they are called, and fixing words damaged by scanning. The AI only returns
 decisions; Fiat Vox checks every one against fixed limits before using it, and undoes any round of changes that
 makes the book worse. A typical book takes 10 to 50 short requests. Without AI, Fiat Vox uses simpler local rules.
+Endnotes printed at the end of a chapter (a "Notes" heading and numbered citations) are always cut, with or
+without AI, and the QC report lists each one.
 
 | Option | Cost | Notes |
 |---|---|---|

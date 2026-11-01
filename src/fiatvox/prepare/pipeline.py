@@ -24,6 +24,7 @@ from ..model import Book
 from . import audit as audit_mod
 from . import chapters as chapters_mod
 from . import decisions as dec
+from . import notes as notes_mod
 from . import ocrfix
 from .clean import clean_book
 
@@ -139,6 +140,9 @@ def build(kind: str, ctx: dict, decisions: dict, backend, work: Path, say: Progr
             book.title = decisions["title"]
         if decisions.get("author"):
             book.author = decisions["author"]
+    cut = notes_mod.strip_notes(book)
+    if cut:
+        r["events"].append("Endnotes cut from the end of chapters: " + "; ".join(cut))
     book = clean_book(book, flags, reps)
 
     say("Building", 0.3, "Auditing the text")

@@ -81,7 +81,8 @@ Decide:
    "Chapter Two: The History of Eggs" form described below. Leave other good headings alone.
 3. "flags", "replacements", "title", "author", and "notes" (short strings: what you cut and why, and anything
    the human should check). Endnote sections split across several files often show odd first headings; drop
-   them all.
+   them all. Notes printed at the end of a chapter, inside the chapter's own section, are cut automatically
+   after your decisions, so do not mention them.
 """ + COMMON_RULES + """
 Return ONLY this JSON object, no commentary:
 {"drop": [], "titles": {}, "flags": [], "replacements": [], "title": "", "author": "", "notes": []}
