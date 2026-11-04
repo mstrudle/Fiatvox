@@ -143,7 +143,7 @@ def build(kind: str, ctx: dict, decisions: dict, backend, work: Path, say: Progr
     cut = notes_mod.strip_notes(book)
     if cut:
         r["events"].append("Endnotes cut from the end of chapters: " + "; ".join(cut))
-    book = clean_book(book, flags, reps)
+    book = clean_book(book, flags, reps, join=kind != "epub")
 
     say("Building", 0.3, "Auditing the text")
     r["audit_before"] = audit_mod.audit(book)

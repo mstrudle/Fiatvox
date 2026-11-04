@@ -7,8 +7,11 @@ Flags (turned on by the AI or the heuristics, never by default):
 """
 from __future__ import annotations
 
+import functools
+import json
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 from ..model import Book
 
@@ -22,7 +25,9 @@ DEFAULT_REPLACEMENTS = [
 ]
 
 URL_RE = re.compile(r"(?:https?://|www\.)[^\s<]+")
-HYPHEN_RE = re.compile(r"([a-z])-[ \t]+(?!(?:and|or|to|nor|as|through)\b)([a-z])")
+# a word broken at a line end: "back- grounds", or "back¬ grounds" where a PDF prints the break as a NOT SIGN
+HYPHEN_RE = re.compile(r"([A-Za-z]*[a-z])(?:-[ \t]+|¬[ \t]*)(?!(?:and|or|to|nor|as|through)\b)([a-z][a-z’']*)")
+END_RE = re.compile(r"[.!?…:;)\]]['\"’”)]*\s*$")
 GLUED_NUM_RE = re.compile(r"(?<=[A-Za-z\.,;:”’\"\)])\d{1,3}(?=[\s ]|$)")
 SUPERSCRIPT_RE = re.compile(r"[⁰¹²³⁴-⁹]+")
 SQUARED_RE = re.compile(r"\b(km|m|mi|ft|cm|in)²")
@@ -57,11 +62,60 @@ def replacement_rules(pairs) -> list[tuple[re.Pattern, str]]:
     return rules
 
 
+@functools.lru_cache(maxsize=1)
+def _lexicon() -> frozenset[str]:
+    """The words Kokoro's pronunciation dictionaries know, which include forms the Mac word list lacks
+    ("began", "airmen"), plus that word list."""
+    from .audit import dictionary
+    words = set(dictionary())
+    try:
+        import misaki.data
+        base = Path(misaki.data.__file__).parent
+        for name in ("us_gold.json", "gb_gold.json"):
+            words.update(k.lower() for k in json.loads((base / name).read_text(encoding="utf-8")))
+    except (ImportError, OSError, ValueError):
+        pass
+    return frozenset(words)
+
+
+def _rejoin(m: re.Match) -> str:
+    """One word if that is a word ("backgrounds"); a hyphen if only the halves are ("cold-blooded")."""
+    from .audit import known_word
+    a, b = m.group(1), m.group(2)
+    tail = b[len(b.rstrip("’'")):]
+    b = b.rstrip("’'")
+    words = _lexicon()
+    if not words or known_word((a + b).lower(), words):
+        return a + b + tail
+    if known_word(a.lower(), words) and known_word(b.lower(), words) and b.lower() not in ("man", "men"):
+        return f"{a}-{b}{tail}"
+    return a + b + tail
+
+
+def join_broken(paragraphs: list[str]) -> list[str]:
+    """Rejoin paragraphs a PDF split mid-sentence (each printed line of a quotation, or a page break), which
+    would otherwise each get a paragraph pause: the first stops without closing punctuation and the next
+    starts in lower case, or the first ends in a broken word."""
+    out: list[str] = []
+    for p in paragraphs:
+        if out:
+            prev = out[-1].rstrip()
+            if re.search(r"[A-Za-z][-¬]$", prev) and re.match(r"\s*[a-z]", p):
+                out[-1] = prev + " " + p.lstrip()      # the hyphen rule then decides "cold-blooded" or "everyday"
+                continue
+            if prev and not END_RE.search(prev) and re.match(r"\s*[a-z]", p):
+                out[-1] = prev + " " + p.lstrip()
+                continue
+        out.append(p)
+    return out
+
+
 def clean_text(t: str, opts: CleanOptions, rules) -> str:
     t = t.replace("­", "")
     if not opts.keep_urls:
         t = URL_RE.sub("", t)
-    t = HYPHEN_RE.sub(r"\1\2", t)
+    t = HYPHEN_RE.sub(_rejoin, t)
+    t = t.replace("¬", "-")
     t = SQUARED_RE.sub(r"\1 squared", t)
     t = CUBED_RE.sub(r"\1 cubed", t)
     t = SUPERSCRIPT_RE.sub("", t)
@@ -80,13 +134,15 @@ def clean_text(t: str, opts: CleanOptions, rules) -> str:
     return t.strip()
 
 
-def clean_book(book: Book, flags=(), replacements=(), keep_urls: bool = False) -> Book:
-    """A cleaned copy: built-in fixes, flags, then the book's own replacements; applied to titles too."""
+def clean_book(book: Book, flags=(), replacements=(), keep_urls: bool = False, join: bool = False) -> Book:
+    """A cleaned copy: built-in fixes, flags, then the book's own replacements; applied to titles too. With
+    `join` (PDFs and documents), paragraphs split mid-sentence are put back together first."""
     opts = CleanOptions.from_flags(flags)
     opts.keep_urls = keep_urls
     rules = replacement_rules(list(DEFAULT_REPLACEMENTS) + [tuple(p) for p in replacements])
     out = book.copy()
     for s in out.sections:
-        s.paragraphs = [p for p in (clean_text(p, opts, rules) for p in s.paragraphs) if p]
+        paras = join_broken(s.paragraphs) if join else s.paragraphs
+        s.paragraphs = [p for p in (clean_text(p, opts, rules) for p in paras) if p]
         s.title = clean_text(s.title, CleanOptions(keep_urls=True), rules) or s.title
     return out

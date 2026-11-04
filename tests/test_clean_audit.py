@@ -68,3 +68,22 @@ def test_tables_and_equations_become_short_notes():
 def test_layout_table_with_prose_is_kept():
     prose = "This is a long paragraph of real prose that a publisher placed inside a table cell for layout reasons."
     assert paragraphs_of(clean_markup(f"<table><tr><td><p>{prose}</p></td></tr></table>")) == [prose]
+
+
+def test_words_broken_at_line_ends_are_rejoined():
+    from fiatvox.prepare.clean import CleanOptions, clean_text
+    o = CleanOptions()
+    assert clean_text("a range of economic back¬ grounds", o, []) == "a range of economic backgrounds"
+    assert clean_text("he struggled to ex¬ press it", o, []) == "he struggled to express it"
+    assert clean_text("a cold¬ blooded killer", o, []) == "a cold-blooded killer"
+    assert clean_text("the air- men and service¬ men", o, []) == "the airmen and servicemen"
+    assert clean_text("‘every¬ day’ things", o, []) == "‘everyday’ things"
+    assert clean_text("ex-convicts and pre- and post-war", o, []) == "ex-convicts and pre- and post-war"
+
+
+def test_paragraphs_split_mid_sentence_are_joined():
+    from fiatvox.prepare.clean import join_broken
+    paras = ["Below in the jungle, carpeted", "with blood of men I have killed I see the", "faces of men.",
+             "A new paragraph.", "It was a cold¬", "blooded act.", "Chapter Two", "The war began."]
+    assert join_broken(paras) == ["Below in the jungle, carpeted with blood of men I have killed I see the faces of men.",
+                                  "A new paragraph.", "It was a cold¬ blooded act.", "Chapter Two", "The war began."]
